@@ -55,9 +55,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # comfyos.zip is the same package under a fixed name: the installation guide links to
+          # releases/latest/download/comfyos.zip. The updater only takes the versioned name.
+          cp "dist/comfyos-$VERSION.zip" dist/comfyos.zip
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" --clobber
+            gh release upload "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" dist/comfyos.zip --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" \
+            gh release create "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" dist/comfyos.zip \
               --title "ComfyOS $VERSION" --generate-notes
           fi

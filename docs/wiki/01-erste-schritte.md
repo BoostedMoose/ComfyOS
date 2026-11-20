@@ -2,6 +2,8 @@
 
 Vom ersten Aufruf bis zum fertigen Grundriss in fünf Schritten. Rechne mit einer halben Stunde, den Grundriss eingeschlossen.
 
+ComfyOS ist noch nicht installiert? Die Anleitung steht im [README unter „Installation“](../../README.md#installation).
+
 ## 1. ComfyOS öffnen und Passwort festlegen
 
 Öffne ComfyOS im Browser:
