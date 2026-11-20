@@ -102,11 +102,13 @@ PIXELS_JS = """() => {
   for (let i = 3; i < all.length; i += 4) if (all[i]) drawn++
   const s = HO.weatherFx.stats, wind = document.querySelector('#fpHost .fp-wind:not(.hidden)')
   return { inside, drawn, frames: s.frames, wisps: s.wisps, cells: s.cells, solid: s.solid, leaves: s.leaves, puddles: s.puddles,
-    ripples: s.ripples, wind: wind ? wind.getAttribute('title') : null }
+    ripples: s.ripples, rays: s.rays, blocked: s.blocked, frost: s.frost, wind: wind ? wind.getAttribute('title') : null }
 }"""
 # previews with wind from 15 km/h and without snow: leaves drift there; previews with rain: puddles and ripples
 LEAFY = {"partly", "rain", "breeze", "storm", "thunder", "hail"}
 WET = {"drizzle", "rain", "sleet", "storm", "thunder", "hail"}
+# previews of a clear sky: by day sun rays are always to be seen (since 0.26.1)
+SUNNY_DAY = {"clear", "frost", "heat"}
 
 
 def run(p, engine, name, reduced=False, **ctx_args):
@@ -242,6 +244,14 @@ def run(p, engine, name, reduced=False, **ctx_args):
                 problems.append(f"{name}: {kind}/{tm}: puddles wrong ({px['puddles']})")
             if bool(px["ripples"]) != (kind in WET and not reduced):
                 problems.append(f"{name}: {kind}/{tm}: Tropfenkreise falsch ({px['ripples']})")
+            # since 0.26.1: hoarfrost patches exactly with frost; on a sunny day sun rays, and the house throws its
+            # shadow shaft into them (no ray shines through the building); at night no ray
+            if bool(px["frost"]) != (kind == "frost"):
+                problems.append(f"{name}: {kind}/{tm}: hoarfrost wrong ({px['frost']})")
+            if tm == "day" and kind in SUNNY_DAY and not (px["rays"] > 0 and px["blocked"] > 0):
+                problems.append(f"{name}: {kind}/{tm}: sun rays or their shadow shaft missing (rays {px['rays']}, blocked {px['blocked']})")
+            if tm == "night" and px["rays"]:
+                problems.append(f"{name}: {kind}/{tm}: sun rays at night ({px['rays']})")
             if name == "desktop" or (kind, tm) in (("rain", "day"), ("clear", "night")):
                 page.locator("#fpHost").screenshot(path=str(SHOTS / f"weather-{name}-{kind}-{tm}.png"))
         # shadow: the cast shadow by day, a soft halo around the building at night

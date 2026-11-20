@@ -50,7 +50,7 @@ Ein Gerät gehört zu dem Raum, in dem es steht. Mit Home Base schreibt ComfyOS 
 - **Temperaturen:** Name und Durchschnitt stehen in jedem Raum.
 - **Heatmap:** Heizkörper leuchten nach gemessener Temperatur. Die Skala reicht vom niedrigsten bis zum höchsten Wert deines Heizplans. Ein offenes Fenster drängt die Wärme mit pulsierender kalter Luft zurück.
 - **Schatten nach Sonnenstand:** Das Haus wirft tagsüber einen Schatten, nachts liegt ein weicher Hof darum. Dafür stellst du im Editor einmal ein, wo Norden ist.
-- **Wettereffekte:** Regen, Schnee, Hagel, Nebel, Wolken, Gewitter, Sonnenlicht und Wind als Strömung ums Haus. Sonnenstrahlen wandern mit den Wolken. Ein Pfeil oben rechts zeigt Windrichtung und Stärke. Schalter **Wetter** über dem Plan, zwei Stärken in den Einstellungen.
+- **Wettereffekte:** Regen, Schnee, Hagel, Nebel, Wolken, Gewitter, Frost, Sonnenlicht und Wind als Strömung ums Haus. Tagsüber ist die Umgebung heller, Sonnenstrahlen kommen und gehen, wandern mit den Wolken und enden am Haus; bei Frost liegt Raureif. Ein Pfeil oben rechts zeigt Windrichtung und Stärke. Schalter **Wetter** über dem Plan, zwei Stärken in den Einstellungen.
 
 Für Wetter, Warnungen und Sonnenstand trägst du im Editor eine **Adresse** ein. Übertragen werden nur Postleitzahl oder Ort und auf etwa einen Kilometer gerundete Koordinaten, nie die Straße.
 

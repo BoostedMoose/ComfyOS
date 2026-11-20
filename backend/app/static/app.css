@@ -42,6 +42,7 @@
   /* Weather effects on the floor plan (weather_fx.js reads them with getComputedStyle; the module sets the opacity) */
   --fx-rain: var(--text-2); --fx-snow: var(--text); --fx-light: var(--text); --fx-cloud: var(--bg);
   --fx-leaf: var(--accent); --fx-flash: var(--text); --fx-fog: var(--text-2); --fx-star: var(--text);
+  --fx-sun: var(--warn);   /* warm tint of sunlight and sun rays (mixed into --fx-light, never pure) */
   /* Chart series (fixed order, checked for a dark surface, colour-blind safe between neighbours) */
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
   --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767; --series-other: var(--muted);
