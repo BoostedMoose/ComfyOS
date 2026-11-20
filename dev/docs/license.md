@@ -4,6 +4,17 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.26
+
+- **The gates are armed:** `entitlements.ENFORCE = True`. An installation without a licence runs as Basic: Pro routes answer
+  402, flows with Pro nodes and active flows beyond the limit pause, the history is capped. Data stays untouched (all gates
+  are monotonic), Owner and Pro keep everything. The note about the free period in the licence card is removed.
+- **Test suite:** `boot.isolate` starts every test in shadow mode (`ENFORCE = False`), because a test world has no licence;
+  tests of the gates arm them themselves. `core/test_entitlements` section 0 checks that the source ships `ENFORCE = True`.
+  The screenshot and measuring tools run through the test worlds and therefore still show everything.
+- **Not yet there:** a way to buy (`BUY_URL` is empty, no licence provider). Until then licences come from the owner's
+  generator.
+
 ## Since 0.24.5
 
 - **Backups are Basic:** `backup_restore` is removed from `FEATURES` and from the plan Pro; the routes `/api/backups…` and
@@ -45,7 +56,7 @@ when something was added.
   - **Never lock the owner out – checklist for every change to `license.py`:** source A needs neither network nor clock; exceptions in a source are caught in `status()`; `core.startup` catches everything ("Basic, never an aborted start"); `check_loop` catches everything; `test_license.py` section 7 must stay green.
   - Set the plan only through `license.apply()` (calls `flow_engine.engine.reload()` on change); `license.sync()`/`tick()` only intervene when the license state changed (tests that set `entitlements.use_plan` directly stay untouched).
   - Tests: `tests/core/test_license.py` (three sources, offline grace period, tampering, test view, generator, owner promise).
-- **ComfyOS Pro conversion:** step plan and release state in `Roadmap.md`. One release per step (current plan there; 1.0 → go online in free mode). The documentation (`dev/docs/`, `dev/README.md`) is updated with every step.
+- **ComfyOS Pro conversion:** step plan and release state in `Roadmap.md`. One release per step (current plan there). The documentation (`dev/docs/`, `dev/README.md`) is updated with every step.
 - **Feature matrix (sources of truth: `entitlements.py` + `flow_nodes.json`):** for every change to plans/features/limits: `entitlements.py` (`PLANS`, `FEATURES`, `LIMITS`) → `test_entitlements.py` → this matrix.
 
   **Plans:** Basic (default, no license) · Pro (paying) · Owner (own Pi/friends, `license.json`).
@@ -80,7 +91,7 @@ when something was added.
   **Deliberately Basic** (free as in the Hue app): backup & restore, migration package and log export (since 0.24.5), lamp control (colour, white tone, gradient, effects incl. room effects), scenes incl. scene manager, room variants, house scene, dynamic scenes and Hue import, the manual device lock, the playback node (`playback`) and the 13 Basic nodes of Flow from before 0.22: `presence` · `play` · `scene` · `time` · `device_signal` · `device_state` · `when` · `not` · `set_presence` · `set_scene` · `set_device` · `set_routine` · `timer`.
 
   New Pro feature: `FEATURES` entry + `dependencies=[entitlements.require_feature("<id>")]` on the route + adapt `test_entitlements.py` section 2.
-- **Basic/Pro (`entitlements.py`, since 0.11 in shadow mode):** plans `PLANS` (Basic/Pro/Owner), features `FEATURES`, limits `LIMITS` are only there. `ENFORCE = False` until it is armed: gates only remember what Basic would block (`shadow_hits`, `/api/entitlements`). Rules:
+- **Basic/Pro (`entitlements.py`, since 0.11 in shadow mode):** plans `PLANS` (Basic/Pro/Owner), features `FEATURES`, limits `LIMITS` are only there. Armed since 0.26 (`ENFORCE = True`). Shadow mode (`ENFORCE = False`) only remains for the test suite: gates then only remember what Basic would block (`shadow_hits`, `/api/entitlements`). Rules:
   - New Pro route ⇒ `dependencies=[entitlements.require_feature("<id>")]` + entry in `FEATURES` + expected list in `test_entitlements.py` (section 2).
   - Mixed endpoints through content policies (`check_floorplan`, `check_flow`, `check_enable`, `cap`), always **monotonic**: only reject what increases Pro usage; existing things stay editable and deletable, never remove anything automatically.
   - New Pro flow node ⇒ only `"pro": true` in `flow_nodes.json`, on the node or on a single field (gate, engine pause and test take effect automatically). The engine asks `paused_flows` at runtime – a hand-edited `flows.json` achieves nothing.

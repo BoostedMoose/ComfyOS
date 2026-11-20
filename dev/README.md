@@ -293,6 +293,7 @@ New device kind or new channel name → add a section or a mock thing here.
 
 ### core/test_entitlements.py
 Checks the Basic/Pro gate system (`entitlements.py`) with `ENFORCE=True`:
+- Section 0 (since 0.26): the source ships `ENFORCE = True`; `boot.isolate` starts the suite in shadow mode
 - Route gates: 402 for Basic, 200 for Pro/Owner
 - Floor plan policy: room limit and elements (monotonic, no data loss); since 0.25 a further floor needs
   `multi_floorplan`, the rooms of all floors count, existing floors stay editable and deletable, decks are Basic

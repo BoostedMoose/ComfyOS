@@ -3,13 +3,14 @@
 Enforced in three places: routes (`require_feature`), content when saving (`check_floorplan`,
 `check_flow`, `check_enable`, `cap`) and the flow engine at run time (`paused_flows`).
 
-Shadow mode: as long as ENFORCE is False, everything counts as unlocked. Every gate then only remembers
-what Basic would block (`shadow`, once per reason on the console). Licence errors never mean a lock-out:
+Armed since 0.26: ENFORCE is True, the plan of the installation applies. Licence errors never mean a lock-out:
 without a valid licence Basic applies, data is never changed.
 
+Shadow mode (ENFORCE False, only the test suite still switches it on): everything counts as unlocked, every gate
+only remembers what Basic would block (`shadow`, once per reason on the console).
+
 The effective plan is set by the licence client (`license.apply`). The owner's preview sets
-`enforce=True` along with it: the chosen plan is then enforced on this installation even while ENFORCE is still
-off. That only restricts, never unlocks – there is no switch that grants rights without a licence.
+`enforce=True` along with it: the chosen plan is then enforced on this installation even in shadow mode. That only restricts, never unlocks – there is no switch that grants rights without a licence.
 """
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ from fastapi import Depends, HTTPException
 
 from . import floorplan_store, flow_catalog
 
-ENFORCE = False
+ENFORCE = True
 BUY_URL = ""
 
 # id -> (Titel, Beschreibung, Status)

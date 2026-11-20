@@ -131,7 +131,6 @@
             <label class="field"><span>Dein ComfyOS-Passwort</span><input type="password" id="signPw" autocomplete="current-password" required></label>
             <div class="form-actions"><button class="btn" type="submit">Schlüssel hinterlegen</button></div></form>`}</details>`
     return head(`<span class="badge ${pv ? 'warn' : l.licensed_plan === 'basic' ? '' : 'accent'}">${pv ? 'Testansicht: ' : ''}${HO.esc(l.plan_title)}</span>`) + `
-      ${l.enforce ? '' : `<p class="small muted">Bis Version 1.0 sind alle Funktionen in jedem Plan freigeschaltet. Eine Lizenz kannst du schon jetzt hinterlegen.</p>`}
       <div class="list">${rows || '<div class="li small muted">Keine Lizenz hinterlegt – ComfyOS läuft als Basic.</div>'}</div>
       <form id="licForm" style="margin-top:14px"><label class="field"><span>Lizenz einlösen</span>
           <textarea id="licText" rows="2" maxlength="8192" autocomplete="off" spellcheck="false" placeholder="Lizenzschlüssel oder Inhalt der Lizenzdatei einfügen"></textarea></label>

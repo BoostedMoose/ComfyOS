@@ -36,6 +36,14 @@ def plan(rooms=0, windows=0, doors=1, heatmap=False, furniture=False, groups=())
             "groups": list(groups)}
 
 
+# 0) The shipped code is armed (since 0.26). `boot.isolate` switches the suite to shadow mode, so the value in the
+#    source is checked – a release that ships `ENFORCE = False` would unlock Pro for everybody.
+_source = (ROOT / "backend" / "app" / "entitlements.py").read_text(encoding="utf-8")
+_switch = [line.strip() for line in _source.splitlines() if line.startswith("ENFORCE =")]
+assert _switch == ["ENFORCE = True"], f"entitlements.ENFORCE must ship as True: {_switch}"
+assert ents.ENFORCE is False, "boot.isolate must start the suite in shadow mode"
+print("0 shipped code enforces the plan; the suite starts in shadow mode")
+
 ents.ENFORCE = True
 ents.use_plan("basic")
 assert ents.current_plan() == "basic"
