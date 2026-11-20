@@ -1,0 +1,8 @@
+{
+ "state": "AWAY",
+ "present_routine": "routine-winter",
+ "away_routine": "routine-urlaub",
+ "changed_at": 1800000000.0,
+ "pending": true,
+ "mapping_pending": true
+}

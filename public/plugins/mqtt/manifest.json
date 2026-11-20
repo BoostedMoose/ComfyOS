@@ -1,0 +1,30 @@
+{
+  "id": "mqtt",
+  "name": "MQTT",
+  "description": "Geräte an einem MQTT-Broker im Heimnetz – Zigbee2MQTT, Tasmota, ESPHome und alles, was sich per Home-Assistant-Discovery meldet, dazu eigene Topics.",
+  "version": "1.2.0",
+  "api": 1,
+  "api_revision": 7,
+  "entry": "__init__:setup",
+  "id_prefixes": ["mqtt:"],
+  "egress": [
+    {"key": "broker", "desc": "MQTT-Broker im Heimnetz", "scope": "lan"}
+  ],
+  "settings": [
+    {"key": "host", "widget": "text", "label": "Adresse des Brokers", "hint": "Name oder IP-Adresse im Heimnetz, z. B. 192.168.178.20. Leer = nicht verbunden."},
+    {"key": "port", "widget": "number", "label": "Port", "default": 1883, "min": 1, "max": 65535, "step": 1,
+     "hint": "Üblich: 1883, mit TLS 8883."},
+    {"key": "username", "widget": "text", "label": "Benutzer", "hint": "Leer lassen, wenn der Broker keine Anmeldung verlangt."},
+    {"key": "password", "widget": "password", "label": "Passwort"},
+    {"key": "tls", "widget": "toggle", "label": "Verschlüsselt verbinden (TLS)", "default": false},
+    {"key": "verify_tls", "widget": "toggle", "label": "Zertifikat des Brokers prüfen", "default": true,
+     "hint": "Nur ausschalten, wenn der Broker ein selbst signiertes Zertifikat hat."},
+    {"key": "discovery_prefix", "widget": "text", "label": "Discovery-Präfix", "default": "homeassistant",
+     "hint": "Unter diesem Topic melden sich die Geräte an. Vorgabe von Zigbee2MQTT und ESPHome: homeassistant."},
+    {"key": "zigbee2mqtt_topic", "widget": "text", "label": "Zigbee2MQTT-Topic", "default": "zigbee2mqtt",
+     "hint": "Basis-Topic von Zigbee2MQTT. ComfyOS liest dort die Geräteliste – auch ohne Home-Assistant-Anbindung."}
+  ],
+  "secrets": ["password"],
+  "static": "static/",
+  "requires": []
+}

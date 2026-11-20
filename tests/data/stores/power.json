@@ -1,0 +1,20 @@
+{
+ "version": 1,
+ "reset_at": 1800000000.0,
+ "day": "2027-01-15",
+ "baselines": {
+  "dect:plug:1": 12.3456
+ },
+ "day_base": {
+  "dect:plug:1": 12.3456
+ },
+ "seen": {
+  "dect:plug:1": 12.4
+ },
+ "estimate": {
+  "huebridge:lamp-2": 0.0003
+ },
+ "estimate_day": {
+  "huebridge:lamp-2": 0.0003
+ }
+}

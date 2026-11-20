@@ -1,0 +1,56 @@
+# Laufzeitdaten (privat – nie committen)
+data/
+logs/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node (nur zum Bauen des Matter-Beiprogramms, siehe dev/build_matter.sh)
+node_modules/
+
+# Builds & Releases
+*.zip
+MANIFEST
+dist/
+build/
+*.egg-info/
+
+# Secrets
+.env
+*.key
+*.pem
+secrets.json
+tools/build_secrets.env
+*.comfyos-license
+license.json
+CLAUDE.md
+captures/
+
+# Privat – nie ins öffentliche Repo (Planung, Lizenz-Generator)
+Roadmap.md
+tools/mint_gift.py
+tools/build_secrets.env.example
+*.har
+
+# Test-Screenshots
+tests/shots/
+
+# Claude Code
+.claude/
+
+# System / Editor
+.DS_Store
+.idea/
+.vscode/
+grep.exe.stackdump
+
+# Beispieldateien der Tests (nur Mock-Daten) gehören ins Repo – trotz „data/“ und „secrets.json“ oben.
+# Ohne sie scheitert tests/core/test_stores.py nach dem Klonen.
+!tests/data/
+!tests/data/stores/secrets.json
+# Das gebündelte Beiprogramm des Matter-Plugins wird mitgeliefert – trotz „dist/“ oben.
+!public/plugins/matter/bridge/dist/

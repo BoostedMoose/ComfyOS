@@ -1,0 +1,85 @@
+{
+ "version": 3,
+ "flows": [
+  {
+   "id": "f0000000002",
+   "name": "Flurlicht bei Bewegung",
+   "enabled": true,
+   "format": 3,
+   "nodes": [
+    {
+     "id": "a",
+     "type": "device_signal",
+     "x": 40.0,
+     "y": 60.0,
+     "config": {
+      "target": {
+       "devices": [
+        "dect:motion:1"
+       ]
+      }
+     }
+    },
+    {
+     "id": "b",
+     "type": "set_device",
+     "x": 320.0,
+     "y": 60.0,
+     "config": {
+      "target": {
+       "rooms": [
+        "flur"
+       ]
+      },
+      "on": true
+     }
+    },
+    {
+     "id": "w",
+     "type": "webhook",
+     "x": 40.0,
+     "y": 220.0,
+     "config": {
+      "token": "beispiel-token-00000000000000000001"
+     }
+    }
+   ],
+   "edges": [
+    {
+     "id": "e1",
+     "from": "a",
+     "fromPort": "out",
+     "to": "b",
+     "toPort": "in"
+    }
+   ],
+   "created": 1800000000.0,
+   "updated": 1800000000.0,
+   "description": "Schaltet das Licht im Flur, sobald sich etwas bewegt."
+  },
+  {
+   "id": "f0000000003",
+   "name": "Leer",
+   "enabled": false,
+   "format": 3,
+   "nodes": [],
+   "edges": [],
+   "created": 1800000000.0,
+   "updated": 1800000000.0
+  }
+ ],
+ "vars": {
+  "Urlaub": true,
+  "Zähler": 3.0,
+  "Notiz": "Müll rausbringen"
+ },
+ "state": {
+  "f0000000002/a": {
+   "on": true
+  },
+  "_flow:f0000000002": {
+   "last": 1800000000.0,
+   "error": null
+  }
+ }
+}

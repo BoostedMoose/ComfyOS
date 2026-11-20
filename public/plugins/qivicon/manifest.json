@@ -1,0 +1,23 @@
+{
+  "id": "qivicon",
+  "name": "Home Base",
+  "description": "Telekom Magenta Home Base 2 (QIVICON) im Heimnetz: Geräte lesen und schalten, Räume, Geräte anlernen – dazu optional der Magenta-Sync für Heizroutinen und Zuhause/Abwesend.",
+  "version": "1.1.1",
+  "api": 1,
+  "api_revision": 7,
+  "entry": "__init__:setup",
+  "id_prefixes": ["*"],
+  "egress": [
+    {"key": "homebase", "desc": "Home Base im Heimnetz", "scope": "lan"},
+    {"key": "catalog", "desc": "Telekom-Gerätekatalog: Hersteller, Bilder und Anleitungen beim Anlernen neuer Geräte",
+     "hosts": ["*.qivicon.com"], "data": "Katalog-Zugang der Home Base und die ID des gewählten Geräts",
+     "trigger": "nur im Anlern-Assistenten"},
+    {"key": "magenta", "desc": "Magenta-Sync: Heizroutinen und Zuhause/Abwesend mit der Magenta-App abgleichen",
+     "hosts": ["telekom.com", "*.telekom.com", "*.qivicon.com"], "data": "Telekom-Login, Heizpläne, Zuhause/Abwesend",
+     "trigger": "nur wenn eingerichtet, dann regelmäßig"}
+  ],
+  "settings": [],
+  "secrets": ["password", "telekom_password"],
+  "static": "static/",
+  "requires": []
+}

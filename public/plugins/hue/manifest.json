@@ -1,0 +1,17 @@
+{
+  "id": "hue",
+  "name": "Philips Hue",
+  "description": "Lampen, Steckdosen, Bewegungsmelder und Schalter einer Hue Bridge im Heimnetz – direkt geschaltet, Änderungen und Tastendrücke kommen sofort an.",
+  "version": "1.1.2",
+  "api": 1,
+  "api_revision": 7,
+  "entry": "__init__:setup",
+  "id_prefixes": ["huebridge:"],
+  "egress": [
+    {"key": "bridge", "desc": "Hue Bridge im Heimnetz", "scope": "lan"}
+  ],
+  "settings": [],
+  "secrets": ["app_key"],
+  "static": "static/",
+  "requires": []
+}

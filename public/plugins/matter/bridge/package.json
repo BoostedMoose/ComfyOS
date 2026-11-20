@@ -1,0 +1,17 @@
+{
+  "name": "comfyos-matter-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Helper program of the ComfyOS Matter plugin: matter.js as bridge and controller, driven over stdin/stdout.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "esbuild bridge.mjs --bundle --platform=node --format=esm --target=node24 --outfile=dist/bridge.mjs --legal-comments=none"
+  },
+  "dependencies": {
+    "@matter/main": "0.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

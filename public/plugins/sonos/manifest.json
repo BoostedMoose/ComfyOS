@@ -1,0 +1,17 @@
+{
+  "id": "sonos",
+  "name": "Sonos",
+  "description": "Sonos-Lautsprecher im Heimnetz – ohne Sonos-Konto und ohne Cloud: Wiedergabe, Lautstärke, Titel, Favoriten, Gruppen und der Ton deines Rechners über den Browser.",
+  "version": "1.2.0",
+  "api": 1,
+  "api_revision": 6,
+  "entry": "__init__:setup",
+  "id_prefixes": ["sonosroom:"],
+  "egress": [
+    {"key": "speakers", "desc": "Sonos-Lautsprecher im Heimnetz", "scope": "lan", "udp": true}
+  ],
+  "settings": [],
+  "secrets": [],
+  "static": "static/",
+  "requires": []
+}

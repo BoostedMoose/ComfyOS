@@ -1,0 +1,27 @@
+{
+  "id": "fritzbox",
+  "name": "FRITZ!Box",
+  "description": "Smart-Home-Geräte einer FRITZ!Box im Heimnetz – FRITZ!DECT-Steckdosen, Heizkörperregler, Lampen, Taster und Sensoren – und Anwesenheit über das Heimnetz der Box.",
+  "version": "1.0.0",
+  "api": 1,
+  "api_revision": 7,
+  "entry": "__init__:setup",
+  "id_prefixes": ["fritzbox:"],
+  "egress": [
+    {"key": "box", "desc": "FRITZ!Box im Heimnetz (Smart Home und TR-064)", "scope": "lan"}
+  ],
+  "settings": [
+    {"key": "host", "widget": "text", "label": "Adresse der FRITZ!Box", "default": "fritz.box"},
+    {"key": "username", "widget": "text", "label": "Benutzer", "default": "",
+     "hint": "Am besten ein eigener FRITZ!Box-Benutzer nur mit dem Recht „Smart Home“ (System → FRITZ!Box-Benutzer). Leer = der Benutzer, den die Box anbietet."},
+    {"key": "password", "widget": "password", "label": "Kennwort"},
+    {"key": "interval", "widget": "number", "label": "Abfragen alle … Sekunden", "default": 10, "min": 3, "max": 120, "step": 1,
+     "hint": "So oft fragt ComfyOS die Box. Ein Tastendruck kommt höchstens so viel später an."},
+    {"key": "presence", "widget": "toggle", "label": "Anwesenheit über das Heimnetz der Box", "default": false,
+     "hint": "Braucht „Zugriff für Anwendungen zulassen“ (Heimnetz → Netzwerk → Netzwerkeinstellungen); je nach FRITZ!OS das Recht „FRITZ!Box Einstellungen“ für den Benutzer."},
+    {"key": "away_after", "widget": "number", "label": "Abwesend nach … Minuten außerhalb des WLANs", "default": 10, "min": 1, "max": 120, "step": 1}
+  ],
+  "secrets": ["password"],
+  "static": "static/",
+  "requires": []
+}

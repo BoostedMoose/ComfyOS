@@ -1,0 +1,10 @@
+{
+ "names": {
+  "wohnen": "Wohnzimmer",
+  "kueche": "Küche"
+ },
+ "order": [
+  "wohnen",
+  "kueche"
+ ]
+}

@@ -1,0 +1,25 @@
+{
+ "version": 2,
+ "locked": {
+  "dect:plug:1": {
+   "at": 1800000000.0,
+   "by": "user"
+  },
+  "huebridge:lamp-2": {
+   "at": 1800000000.0,
+   "by": "flow:f0000000001"
+  }
+ },
+ "names": {
+  "dect:plug:1": "Kaffeemaschine"
+ },
+ "hidden": {
+  "mqtt:alter-sensor": "Alter Sensor"
+ },
+ "rooms": {
+  "huebridge:lamp-1": "plan:r1"
+ },
+ "adopted": [
+  "huebridge:lamp-1"
+ ]
+}

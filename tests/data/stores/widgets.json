@@ -1,0 +1,145 @@
+{
+ "version": 1,
+ "pages": [
+  {
+   "id": "p000000001",
+   "name": "Zuhause",
+   "icon": "home",
+   "cols": 12,
+   "cols_narrow": 4,
+   "row": "normal",
+   "gap": 12,
+   "compact": true,
+   "backdrop": "glow",
+   "widgets": [
+    {
+     "id": "w000000001",
+     "type": "clock",
+     "title": "",
+     "head": false,
+     "style": "card",
+     "tint": "",
+     "scale": 100,
+     "align": "center",
+     "wide": {
+      "x": 0,
+      "y": 0,
+      "w": 3,
+      "h": 2
+     },
+     "narrow": {
+      "x": 0,
+      "y": 0,
+      "w": 4,
+      "h": 2
+     },
+     "opts": {
+      "look": "both",
+      "seconds": true
+     }
+    },
+    {
+     "id": "w000000002",
+     "type": "room",
+     "title": "Wohnen",
+     "head": true,
+     "style": "glass",
+     "tint": "s3",
+     "scale": 120,
+     "align": "start",
+     "wide": {
+      "x": 3,
+      "y": 0,
+      "w": 4,
+      "h": 3
+     },
+     "narrow": null,
+     "opts": {
+      "room": "wohnen",
+      "devices": true
+     }
+    },
+    {
+     "id": "w000000003",
+     "type": "heating",
+     "title": "",
+     "head": true,
+     "style": "card",
+     "tint": "",
+     "scale": 100,
+     "align": "start",
+     "wide": {
+      "x": 7,
+      "y": 0,
+      "w": 5,
+      "h": 3
+     },
+     "narrow": null,
+     "opts": {
+      "rooms": [
+       "wohnen",
+       "kueche"
+      ],
+      "routine": false
+     }
+    },
+    {
+     "id": "w000000004",
+     "type": "value",
+     "title": "",
+     "head": true,
+     "style": "card",
+     "tint": "",
+     "scale": 100,
+     "align": "start",
+     "wide": {
+      "x": 0,
+      "y": 2,
+      "w": 3,
+      "h": 2
+     },
+     "narrow": null,
+     "opts": {
+      "device": "dect:plug:1",
+      "prop": "power_w",
+      "look": "gauge",
+      "max": "2000"
+     }
+    }
+   ]
+  },
+  {
+   "id": "p000000002",
+   "name": "Garten",
+   "icon": "sun",
+   "cols": 8,
+   "cols_narrow": 2,
+   "row": "square",
+   "gap": 0,
+   "compact": false,
+   "backdrop": "dots",
+   "widgets": [
+    {
+     "id": "w000000005",
+     "type": "note",
+     "title": "",
+     "head": true,
+     "style": "bare",
+     "tint": "",
+     "scale": 100,
+     "align": "start",
+     "wide": {
+      "x": 1,
+      "y": 4,
+      "w": 6,
+      "h": 2
+     },
+     "narrow": null,
+     "opts": {
+      "text": "Gießen: Dienstag und Freitag\nSchlauch im Schuppen"
+     }
+    }
+   ]
+  }
+ ]
+}

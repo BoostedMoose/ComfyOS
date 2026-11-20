@@ -1,0 +1,53 @@
+{
+ "routines": {
+  "local-00000000": {
+   "key": "local-00000000",
+   "name": "Urlaub",
+   "source": "local",
+   "pending_create": true,
+   "rooms": [
+    "bad",
+    "wohnen"
+   ],
+   "schedule": {
+    "wohnen": {
+     "0": [
+      {
+       "time": "06:30",
+       "raw": "21",
+       "temp": 21.0,
+       "level": false
+      },
+      {
+       "time": "22:00",
+       "raw": "17.5",
+       "temp": 17.5,
+       "level": false
+      }
+     ]
+    },
+    "bad": {
+     "5": [
+      {
+       "time": "07:00",
+       "raw": "23",
+       "temp": 23.0,
+       "level": false
+      }
+     ]
+    }
+   }
+  }
+ },
+ "room_names": {},
+ "levels": {
+  "COMFORT": 22.0,
+  "ON": 20.0,
+  "ECO": 15.0,
+  "OFF": 6.0
+ },
+ "active": "local-00000000",
+ "active_pending": false,
+ "pending_deletes": [],
+ "last_sync": null
+}

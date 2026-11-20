@@ -1,0 +1,25 @@
+{
+ "version": 1,
+ "rooms": {
+  "wohnen": {
+   "effect": "candle",
+   "target": "room",
+   "color_source": "custom",
+   "color": "#ffaa33",
+   "kelvin": null,
+   "speed": 40,
+   "since": 1800000000.0
+  },
+  "bad": {
+   "effect": "fire",
+   "target": [
+    "huebridge:lamp-2"
+   ],
+   "color_source": "own",
+   "color": null,
+   "kelvin": null,
+   "speed": null,
+   "since": 1800000000.0
+  }
+ }
+}

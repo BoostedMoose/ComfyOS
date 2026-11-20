@@ -1,0 +1,3 @@
+# Textdateien haben LF – im Repo und im Arbeitsverzeichnis, auch unter Windows.
+# dev/test.sh, start.sh und die Stilprüfung (tests/core/test_style.py, Abschnitt 5) brauchen das.
+* text=auto eol=lf

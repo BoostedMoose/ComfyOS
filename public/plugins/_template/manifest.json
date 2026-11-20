@@ -1,0 +1,18 @@
+{
+  "id": "example",
+  "name": "Beispiel-Plugin",
+  "description": "Eine virtuelle Lampe als Vorlage für eigene Plugins.",
+  "version": "1.0.0",
+  "api": 1,
+  "entry": "__init__:setup",
+  "id_prefixes": ["example:"],
+  "egress": [],
+  "settings": [
+    {"key": "lamp_name", "widget": "text", "label": "Name der Lampe", "default": "Beispiel-Lampe",
+     "hint": "So heißt die virtuelle Lampe in ComfyOS."},
+    {"key": "dimmable", "widget": "toggle", "label": "Dimmbar", "default": true}
+  ],
+  "secrets": [],
+  "static": "",
+  "requires": []
+}

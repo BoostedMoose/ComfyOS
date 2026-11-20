@@ -1,0 +1,316 @@
+{
+ "width": 20.0,
+ "height": 12.0,
+ "address": "Musterstraße 1, 10115 Berlin",
+ "heatmap": true,
+ "show_names": true,
+ "weather": true,
+ "warnings": true,
+ "shadow": true,
+ "north": 90,
+ "fx": true,
+ "fx_level": "subtle",
+ "walls": [
+  {
+   "id": "w1",
+   "pts": [
+    [
+     1.0,
+     1.0
+    ],
+    [
+     19.0,
+     1.0
+    ],
+    [
+     19.0,
+     11.0
+    ],
+    [
+     1.0,
+     11.0
+    ],
+    [
+     1.0,
+     1.0
+    ]
+   ],
+   "bend": [
+    null,
+    null,
+    null,
+    null
+   ]
+  },
+  {
+   "id": "w2",
+   "pts": [
+    [
+     10.0,
+     1.0
+    ],
+    [
+     10.0,
+     11.0
+    ]
+   ],
+   "bend": [
+    [
+     11.0,
+     6.0
+    ]
+   ]
+  }
+ ],
+ "rooms": [
+  {
+   "id": "r1",
+   "name": "Küche",
+   "room_id": "kueche",
+   "x": 5.0,
+   "y": 6.0
+  },
+  {
+   "id": "r2",
+   "name": "Wohnzimmer",
+   "room_id": "wohnen",
+   "x": 15.0,
+   "y": 6.0
+  }
+ ],
+ "openings": [
+  {
+   "id": "o1",
+   "type": "window",
+   "a": [
+    3.0,
+    1.0
+   ],
+   "b": [
+    5.0,
+    1.0
+   ],
+   "side": -1,
+   "device_id": "dect:contact:1",
+   "extra_ids": [
+    "dect:cover:1"
+   ]
+  },
+  {
+   "id": "o2",
+   "type": "radiator",
+   "a": [
+    12.0,
+    11.0
+   ],
+   "b": [
+    14.0,
+    11.0
+   ],
+   "side": 1,
+   "device_id": null
+  }
+ ],
+ "devices": {
+  "dect:plug:1": {
+   "x": 4.0,
+   "y": 4.0
+  },
+  "huebridge:lamp-1": {
+   "x": 15.0,
+   "y": 3.0,
+   "furniture": "sofa",
+   "size": 1.5,
+   "rot": 90
+  }
+ },
+ "groups": [
+  {
+   "id": "g1",
+   "name": "Leseecke",
+   "x": 16.0,
+   "y": 8.0,
+   "members": [
+    "huebridge:lamp-2",
+    "huebridge:lamp-3"
+   ]
+  }
+ ],
+ "home_name": "Wohnung",
+ "decks": [
+  {
+   "id": "d1",
+   "pts": [
+    [
+     19.0,
+     3.0
+    ],
+    [
+     20.0,
+     3.0
+    ],
+    [
+     20.0,
+     9.0
+    ],
+    [
+     19.0,
+     9.0
+    ],
+    [
+     19.0,
+     3.0
+    ]
+   ],
+   "bend": [
+    null,
+    null,
+    null,
+    null
+   ]
+  }
+ ],
+ "stairs": [
+  {
+   "id": "s1",
+   "a": [
+    8.0,
+    9.0
+   ],
+   "b": [
+    8.0,
+    5.0
+   ],
+   "width": 1.5
+  }
+ ],
+ "floor_id": "eg",
+ "floor_name": "",
+ "floors": [
+  {
+   "id": "og",
+   "name": "Oben",
+   "level": 1,
+   "walls": [
+    {
+     "id": "w3",
+     "pts": [
+      [
+       1.0,
+       1.0
+      ],
+      [
+       10.0,
+       1.0
+      ],
+      [
+       10.0,
+       11.0
+      ],
+      [
+       1.0,
+       11.0
+      ],
+      [
+       1.0,
+       1.0
+      ]
+     ],
+     "bend": [
+      null,
+      null,
+      null,
+      null
+     ]
+    }
+   ],
+   "rooms": [
+    {
+     "id": "r3",
+     "name": "Schlafzimmer",
+     "room_id": "schlafen",
+     "x": 5.0,
+     "y": 6.0
+    }
+   ],
+   "openings": [
+    {
+     "id": "o3",
+     "type": "window",
+     "a": [
+      3.0,
+      1.0
+     ],
+     "b": [
+      5.0,
+      1.0
+     ],
+     "side": 1,
+     "device_id": "dect:contact:2"
+    }
+   ],
+   "devices": {
+    "dect:contact:2": {
+     "x": 4.0,
+     "y": 1.5
+    },
+    "huebridge:lamp-4": {
+     "x": 6.0,
+     "y": 7.0
+    }
+   },
+   "groups": [],
+   "decks": [
+    {
+     "id": "d2",
+     "pts": [
+      [
+       10.0,
+       1.0
+      ],
+      [
+       19.0,
+       1.0
+      ],
+      [
+       19.0,
+       11.0
+      ],
+      [
+       10.0,
+       11.0
+      ],
+      [
+       10.0,
+       1.0
+      ]
+     ],
+     "bend": [
+      null,
+      [
+       20.0,
+       6.0
+      ],
+      null,
+      null
+     ],
+     "surface": "tiles"
+    }
+   ],
+   "stairs": [
+    {
+     "id": "s2",
+     "a": [
+      8.0,
+      5.0
+     ],
+     "b": [
+      8.0,
+      9.0
+     ],
+     "width": 2.0
+    }
+   ]
+  }
+ ]
+}

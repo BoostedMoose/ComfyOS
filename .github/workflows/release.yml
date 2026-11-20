@@ -1,0 +1,63 @@
+# On every tag v<version> builds the update package comfyos-<version>.zip and
+# publishes it as a GitHub release. ComfyOS downloads exactly this asset under
+# System -> Update -> "Nach Updates suchen".
+# Before that: all backend tests, vulnerability check of the dependencies, secret scan of the package.
+# Actions are pinned to commit hashes (tags can be bent, cf. tj-actions 2025).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only for creating the release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0   # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Compare tag and VERSION
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME passt nicht zu VERSION $v"; exit 1
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Dependencies and tests
+        run: |
+          python -m pip install -q -r backend/requirements.txt
+          python tests/run_all.py
+
+      - name: Vulnerabilities in dependencies (pip-audit, CI only)
+        run: |
+          python -m pip install -q pip-audit==2.9.0
+          python -m pip_audit -r backend/requirements.txt --progress-spinner off
+
+      - name: Build the package and check it for secrets
+        run: |
+          mkdir -p dist
+          python tools/make_release.py dist
+          mkdir -p dist/check && unzip -q "dist/comfyos-$VERSION.zip" -d dist/check
+          python tools/check_secrets.py dist/check
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "dist/comfyos-$VERSION.zip" \
+              --title "ComfyOS $VERSION" --generate-notes
+          fi

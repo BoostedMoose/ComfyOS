@@ -1,0 +1,209 @@
+# Floor plan, weather effects, weather warnings
+
+Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when to read this file).
+This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
+when something was added.
+
+## Since 0.25 – several floors, decks, wandering sun rays
+
+- **Stored form (`floorplan_store.py`, purely additive):** walls, rooms, openings, devices, groups and decks at the top
+  level (and, with them, stairs) are the floor with level 0; every further floor carries the same lists (`CONTENT_KEYS`) in
+  `floors: [{id, name, level, …}]` – `level` > 0 above, < 0 below, kept without gaps by `_clean`. `floor_id` and
+  `floor_name` name the floor at the top level. Width, height, address and all display settings are shared. A plan from
+  before 0.25 is valid unchanged and simply one floor. At most `MAX_FLOORS` (8).
+- **Readers never look at the top level and `floors` separately:** backend `floorplan_store.floors(plan)`, `rooms(plan)`,
+  `groups(plan)` (room assignment, room routes, groups in `control.py` and the flow engine, entitlements); browser
+  `HO.floorplan.floorsOf(plan)`, `roomsOf`, `groupsOf`, `hasWalls` (home page, widgets, lights, flow editor, Matter tile).
+- **A device stands on exactly one floor – two guards.** Store: `_clean` walks the floors (level 0, then upwards, then
+  downwards) with one set `taken`; a device that an earlier floor holds as a position, as a group member or docked is
+  dropped on the later one. Ids of floors, rooms and groups are made unique across floors (`_unique`), so `plan:<id>`
+  room keys and group ids stay unambiguous. Editor: everything that puts a device onto the floor shown calls `claim(id)`
+  first (`placeDevice`, docking through the panel), which takes it off every other floor (`removeFrom`). "Nicht platziert"
+  and "Geräte verteilen" look at all floors (`isPlaced` = `floorOf`). Moving a device is explicit: panel of the device →
+  "Stockwerk" (`moveToFloor`). `tests/core/test_stores.py` section 5 holds the store rules.
+- **Working plan in the browser (`normPlan`, block "Several floors" in `floorplan.js`):** `plan.levels` = all floors in one
+  form, bottom to top; `plan.floor` = the floor shown and edited; `plan.walls`, `plan.rooms`, `plan.openings`,
+  `plan.devices`, `plan.groups`, `plan.decks`, `plan.stairs` are accessors onto that floor – so all drawing and editing code works on one
+  floor and cannot reach another by accident. `JSON.stringify(plan)` yields the stored form again (`toJSON` →
+  `storedPlan`): saving, the undo history and `fp.plan` for the home page need nothing else. `st.floorId` keeps the floor
+  across fresh data, undo and redo (`openPlan`). Never spread or `Object.assign` a working plan to copy it – clone it.
+- **Editor:** second line of the toolbar (`floorBarHTML`): the floors, "+ Stockwerk" (panel `newFloorHTML`: on top or at
+  the bottom of the stack; take over the outline of the floor shown – walls, openings and decks with new ids, no devices,
+  no room names, no hub links – or start empty), "Durchscheinen" and "Einrasten". The neighbouring floor (`neighbour()`:
+  the one below, for the lowest the one above) is drawn dashed below everything (`underlaySVG`, `.fp-under`); `snapPt`
+  takes its corners and straight walls as snapping targets. Both are editor preferences of the browser (`ho.fpGhost`,
+  `ho.fpFloorSnap`), like the grid. Name and delete of the floor shown: panel without a selection (`floorPanelHTML`,
+  `deleteFloor` – asks first; if the floor with level 0 goes, the one above takes its place, `relevel`). The size of the
+  area clamps the content of all floors. `autoRooms` skips rooms another floor already shows and never shrinks the area.
+- **View:** `fp.floors`, `fp.floor`, `fp.setFloor(id)`, `fp.stepFloor(±1)`, option `floor` (start) and callback `onFloor`.
+  Home page and full screen: two buttons with the short name between them (`floorSwitchHTML`, `#fpFloorSw` in
+  `overview.js`), remembered per device (`ho.fpFloor`). Widget: option `floorNav` draws the buttons in the frame
+  (`.fp-floornav`); the widget setting `floor` is empty (switchable) or the id of a fixed floor. The title names the floor,
+  the average is the one of its rooms. A floor below the ground (`level < 0`) has no weather effects and no cast shadow,
+  only the soft halo.
+- **Decks (`decks`, tool "Balkon"):** balcony or terrace = a closed outline stored like a wall whose last point repeats the
+  first (`{id, pts, bend}`, at least three corners, `MAX_DECKS` 40 per floor). Drawn like a wall (the draft carries
+  `deck: true`; finishing closes it). Selection type `deck`: drag the area (drag mode `move`), corners and middles like a
+  wall (`deckJoint` – a corner moves alone, it never drags a wall along), part of the multi-selection. Look (`decksSVG`,
+  CSS block "Floor plan, since 0.25"): a faint floor with one of three surfaces (`surface`: planks of wood as the standard and not stored, `tiles` = square
+  grid, `plain` = no pattern; chosen in the panel, pattern in plan units along the longest edge),
+  a thin railing line; cut out where a room is (mask, not on `HO.perf.low`). Decks are Basic.
+- **Decks and the weather:** a deck is outside – nothing is punched out, rain, snow, light and wind pass over it.
+  `fxMask()` hands over `decks` and `covered` (room areas of all other floors, `builtOver`); `seedPuddles` treats both like
+  the building: a puddle belongs to the ground and is never painted across a balcony above it or under another floor.
+  `shape` contains the floor, the decks and the revision of `covered`, so puddles are laid out anew when the floor changes.
+- **Stairs (`stairs`, tool "Treppe"):** `{id, a, b, width}` – a staircase from its foot `a` up to its head `b`
+  (`STAIR_WIDTH`: 0.5…6 cells, 2 by default, at most `MAX_STAIRS` 20 per floor); drawn by dragging from the lowest to
+  the highest step. Selection type `stair`: drag = move (`smove`), the ends move freely (`send`: length and direction),
+  panel with width and "Richtung"; part of the multi-selection. **Two looks from one entry** (`stairsSVG`): on its own
+  floor the way up (`stairSVG`: treads, no arrow); on the floor above the same place is the stairwell
+  (`stairwellSVG`, `data-kind="stairwell"`, not editable there): a dark pit, a shade that deepens towards the foot
+  (gradient along the run), side walls and treads that narrow and fade – it reads as the way down. In the view a tap
+  on a staircase goes one floor up, a tap on a stairwell one floor down (`viewTap`). **Stairs above each other**
+  (`stacked`: same line, the middle of one on the other): the staircase of the floor shown and the stairwell below it
+  share the width, one half each (`span`), so both stay visible and can be tapped. Copying a floor does not copy stairs –
+  the stairwell appears by itself. Stairs are Basic.
+- **Sun rays wander with the wind (`weather_fx.js`, `rayDrift`):** they move across the light at the pace of the clouds
+  (`CLOUD_PACE`), at least `RAY_SIDE_MIN` of it to one side if the wind blows along the light. Only while the image is
+  animated anyway – a clear, calm day stays a single image.
+- **Basic/Pro:** a further floor needs `multi_floorplan` (`entitlements.check_floorplan`, monotonic: existing floors stay
+  editable and deletable); the room limit counts the rooms of all floors.
+- **Demo home:** balcony in front of the living room; second floor "Dachgeschoss" with a studio, a roof terrace and three
+  devices.
+
+## Since 0.24.3 – several devices at one element
+
+- **Docking takes several devices:** a window, a door or a radiator carries up to `MAX_DOCKED` (4) devices – a window its
+  contact and its roller shutter, a radiator two thermostats. Stored additively: `openings[].device_id` stays the first
+  docked device, `extra_ids` lists the further ones (only present with more than one; `floorplan_store._docked`/`_set_docked`,
+  in the browser `dockedIds`/`setDocked`/`undock`). A device hangs on at most one element; `_clean` enforces that.
+- **What docks where (`dockTypes`):** thermostat → radiator; contact (or any device reporting `open`) and **cover** → window
+  and door. Nothing else docks – lights, plugs, sensors, motion and smoke detectors stand free in the room.
+- **Look:** the dots follow the rules of a single one and lie side by side along the element, centred on it (`dockLayout`,
+  distance `2r + 4u`). State of the element: one open contact marks the window or door open, one heating thermostat
+  highlights the radiator (the strongest counts); the heat map takes the mean of the thermostats of a radiator.
+- **Use:** tapping a dot opens that device; tapping the element opens its only device or – with several – all of them
+  together (`onGroupClick` with a pseudo group `open:<id>`). In the editor the panel of an element lists the docked devices
+  ("Lösen") and offers the fitting ones to add; dragging a device onto an occupied element docks it next to the others.
+
+## Since 0.24.2 – device symbols
+
+- **Three looks, one rule for the state** (`renderSVG`, CSS block "Floor plan: devices" in `app.css`): a device is the
+  **standard bubble** (fixed radius `R`, symbol of its kind from `HO.iconPaths`), a **dot** at its window, door or radiator
+  when docked, or a **plan symbol** (`.fp-dev.symbol`). A group is a bubble `GROUP_SCALE` times as large. The frame of a
+  bubble and the dot of a docked device or plan symbol carry the state in the same colours: accent = idle, `--ok` = active
+  (`on`, `heat`, `open`, `motion`), grey = no contact. **Problems never recolour the frame** – they are marks
+  (`markSVG`: battery, lock, no contact, fault, number of a group), placed by `deviceMarks` at the same corners for every
+  symbol. The bubble cannot be scaled; the size per device kind (`device_styles`) and its input field are gone – the field
+  is no longer read or written.
+- **Plan symbols (`js/floorplan_symbols.js`, `HO.planSymbols`):** 30 shapes drawn from above like the plan itself, front
+  towards the bottom edge (TV, soundbar, speaker, hi-fi, console, computer, printer, router, camera, three lights,
+  furniture, household appliances, car). The drawing rules stand at the top of the file (box of 48 units, classes `f`/`l`/`k`,
+  colours and line width only in `.fp-sym`, keys are never renamed – the ten keys from before 0.24.2 are kept, so old plans
+  show the new drawing). The symbol itself stays neutral, the **status dot** (`.fp-dot`) sits at its top right corner.
+- **Size and turn only for plan symbols:** `devices[id].furniture` (key), `size` (0.5…4, 1 is not stored) and `rot`
+  (steps of 45°, 0 is not stored); `floorplan_store._clean` only keeps `size`/`rot` together with a symbol. At size 1 the
+  box covers `SYMBOL_CELLS` cells, so a symbol keeps its proportion to the rooms at every zoom (`symbolBox`;
+  `SYMBOL_MIN_PX` keeps it readable on very small plans). In the editor the selected symbol gets a frame with a handle
+  at the corner (`data-kind="symscale"`, drag mode `symscale`), plus −/+ and "Drehen" in the panel for the finger.
+- **Symbol picker** (`symbolPicker`, `.fp-sympick`): pictures instead of a list – for a device the standard bubble and
+  all plan symbols, for a group additionally the symbols of the device kinds. A plan symbol in a group is fitted into
+  the group bubble and is never scaled.
+- **Basic/Pro:** `custom_appearance` now counts devices shown as a plan symbol (`entitlements._appearance`).
+
+## Since 0.20.1
+
+- **The weather is attached to the plot (`weather_fx.js`, `carry`):** `getMask()` additionally returns `view` (plan unit → pixel)
+  and `shape` (identifier of the building). If the plan sits differently in the frame than in the last picture – gesture, zoom button, new size –,
+  drops (with their target), drop rings, flakes, leaves, wind lines, clouds, fog, stars and frost move along; what
+  leaves on one side comes back in on the opposite one. **During a gesture the canvas stays put and keeps drawing**
+  (`gesture(true)` → `follow()` in step with `drawLive`, the offset comes through `getShift`); only on low-power devices
+  the picture stands still and is moved by CSS like the SVG. During the gesture `fxMask()` returns the outline of the painted picture
+  (`live.mask`). Never again freeze the weather picture and push it along – it stood still and was cut off at the
+  edge (wish of the operator).
+- **Nothing jumps:** `seed()` only adjusts the lists (`fit`): existing particles stay, some are added or
+  dropped – for new weather values, a new size and a new step of the self-regulation. The key of the mask (`fxMask`)
+  works with the position **in the frame**, not on the screen (otherwise every scroll of the page rebuilt the flow
+  field). On the phone the height of the view no longer follows the address bar folding in and out (`screenHeight`). A
+  calm single picture uses the time of the last picture.
+- **Rain:** every drop has a target on the ground somewhere in the picture (`launch`), ends there and triggers its
+  drop ring exactly there (`land`) – no ring without a drop. Rings are drawn in one path per brightness step (`RINGS`).
+  **Puddles** (`puddle`, `seedPuddles`): flat, irregular water areas as pre-drawn images, fixed places in
+  plan units, never in the house; their size slowly follows the rain intensity (`wet`). No light edge, no shading from
+  one side – that looked like stones.
+- **Wind:** the number of lines grows clearly with the wind (`wispCount`: few at 10 km/h, a multiple in a storm), in gusts
+  more are moving (the others rest). A line that runs towards a wall fades out beforehand (`solidAt` looks ahead,
+  `out` counts down) instead of ending abruptly. **Leaves from 15 km/h** (`LEAF_MIN`), in the accent colour (`--fx-leaf: var(--accent)`),
+  muted like the warmest spot of the heat map (`LEAF_ALPHA` = `HEAT_MAX`), as fast as the lines; not with snow.
+  **Clouds** move in wind direction at `CLOUD_PACE` (65 %) of the speed of the lines, all about equally fast.
+- **Wind arrow** (`.fp-wind`, `renderWind` in `floorplan.js`): top right in the floor plan, only with weather effects; shows where
+  the wind blows to (wind direction + 180° + north of the plan), next to it km/h (`fx.wind_kmh` from `weather.fx`, in previews
+  `wind × 80`).
+- **Sun:** no round yellow glow any more. The rays arrive in parallel – a straight gradient across the picture in
+  very transparent white (`--fx-light: var(--text)`), plus fine bundles of rays (`beam`): few fixed ones on a clear day,
+  under clouds one breaks through now and then (follows from the time alone, `stats.rays`). A clear day stays a
+  single picture.
+- **Building shadow toned down:** `SHADOW_DAY` 0.4 (before 0.55), `SHADOW_NIGHT` 0.34 (before 0.5).
+- **Heat map linear and without adding:** every spot gets the proximity-weighted mean of its thermostats
+  (on the scale of the heating plan 0…1) times fall-off – transparent at the lower end of the scale, `HEAT_MAX` at the upper. Several
+  thermostats in one room or a warm neighbouring room no longer drive the colour above the room's own value; the `tanh`
+  is gone. A room with 17 °C is almost transparent on a scale from 15 to 22 °C, even if 17 °C is its target
+  (wish of the operator).
+- **Check pictures:** `dev/fx_shots.py` photographs every weather situation (own values too, through
+  `HO.state.fxPreview = {base: 'rain', rain: 1, …}`) to `tests/shots/effects/`.
+
+## Since 0.20
+
+- **Camera (`js/floorplan_camera.js`, `HO.planCamera`):** one camera for the view on the home page and the full screen.
+  `floorplan.js` reads it with `look()` as `{cx, cy, s, cw, ch}` and sets it with `aim()`; in the view `st.zoom`/`st.zc`
+  are behind it, in the full screen `cam`. Gestures: full screen – one finger/mouse pans, two fingers zoom, the mouse wheel zooms around
+  the pointer, double click zooms in. View – two fingers or Ctrl+mouse wheel zoom, the mouse wheel alone scrolls the page,
+  one finger only pans once zoomed in; plus the buttons −, + and "Ansicht zurücksetzen" (`fpFit`).
+- **During the gesture the SVG is not repainted:** `beginLive()` sets `.fp-moving`, `drawLive()` moves and scales
+  the SVG by CSS transform (the weather picture has been drawing along itself since 0.20.1, see above), `settleLive()` writes
+  the `viewBox` once (and only redraws when the scale changed). In the middle of the gesture a redraw only happens outside of `LIVE_RANGE`. Fresh data during the gesture is
+  remembered (`live.dirty`). Never again set the `viewBox` per pointer move – that was the cause of the stutter.
+- **Rebuild only on change:** `renderSVG()` compares the generated markup with the last written one (`st.drawn`).
+  What should not change the picture is therefore not in the markup: the highlight of a room is set by `markRooms()`, the
+  sun position for drawing is rounded to tenths of a degree (`steadySun`), `setAttr` only writes attributes on change.
+- **Cold-air pulse in its own rhythm (`pulse`):** the SMIL animation at open windows is paused and advanced 8 times per
+  second (low power: 4); during gestures and with a hidden tab it stands still.
+- **Economical shadows:** with `HO.perf.low` the floor plan draws shadows without SVG filters (halo from three borders,
+  device shadow as the gradient `#fpdevsoft`).
+- **Weather effects regulate themselves (`weather_fx.js`, `STEPS`):** every view measures delay and drawing time and takes
+  back one step if needed (pixel density, frame rate, amount); from step 2 on the device remembers "low power" (`HO.perf.learnLow`).
+  `stats.step` names the step (test, diagnosis).
+- **Toolbar above the floor plan** (`.fp-tools.fp-toolscroll`): always one line, scrollable sideways when space is short.
+- **Measurements and experiments:** `dev/perf.md`. **Tests:** `tests/ui/ui_camera.py`, `ui_home.py`, `ui_visual.py`.
+
+## Structure and rules
+
+- **Floor plan (`floorplan.json`; since 0.25 per floor, see "Since 0.25"):** only open wall polylines (`bend[i]` = quadratic control point); the browser computes the areas. `rooms` = name, Home Base link, anchor. `openings` = `door|window|passage|radiator`. `devices` = positions (`furniture` = plan symbol with `size` and `rot`, see "Since 0.24.2"; `t`/`s` from old plans are no longer read). **Docking (since 0.19 in the editor as in the view):** if a device is dragged onto a fitting element (thermostat → radiator, contact → window/door), it sits at once as a dot centred on the element – there is no longer a position along the element or a side; dragging the dot away releases it again (then one holds the bubble, `nearestDock` with some holding force). **Unplaced devices** are in the editor as a strip directly below the plan (`.fp-tray`: one line, swipe sideways; tap and then tap on the plan or – with the finger upwards – drag), the other details only below that. A docked device sits as a dot on its element (since 0.12.3): radiator dot in front of the radiator in the room, window/door on an outer wall (`roomSideOf` = room on one side only) outside in front of it, inner ones centred in the opening. Device symbols have a soft shadow (`devShadowSVG`), clipped per symbol to its own room area and below the walls – it never bleeds over walls, into neighbouring rooms or out of the home. `groups` = device groups `{id, name, x, y, members}` (drag a device onto another one/a group in the editor; members have no position of their own and do not dock, a device is in at most one group – `_clean` enforces that). **Editor multi-selection (since 0.12.3, browser only):** `st.msel` (drag a frame, Shift/Ctrl/Cmd+click, "Alles"/Ctrl+A) → frame with handles: move, corners scale uniformly (Shift frees it), side centres on one axis. Transformed are wall points including coinciding points of other walls, curve points, doors/windows on fully moved edges (otherwise `carryOpenings`), free devices/groups (selected or in selected rooms) – never symbols. Room anchors are set anew from the corners that moved along (`roomRefs`), otherwise a deformed room would lose its name and its Home Base link. No `assignByPosition` in the process (no room changes at the Home Base). Grid snapping can be switched off (`gridSnap`, localStorage `ho.fpSnap`); snapping to wall points/walls always stays on. `shadow`/`north` = cast shadow by sun position (since 0.12.3; `sunPos` computes in the browser, place = `geo` from `/api/overview`, rounded from the weather cache, otherwise the middle of Germany – no internet request); the user sets north in the editor (degrees clockwise from "up"), the app does not know the orientation of the plan. Drawn as a luminance mask from `SHADOW_STEPS` copies offset along the shadow direction (light at the back, painted over dark at the front): sharp side edges, fall-off only towards the back, no overlap. Zoom without full screen (`st.zoom`, plus/minus) only changes the `viewBox` (`applyZoomBox`, centre `st.zc`), the SVG area stays the same size; when zoomed in, dragging pans the section. Heat map opacity at most `HEAT_MAX` (linear on the scale, since 0.20.1 without adding several thermostats) – so that accents stay visible. **Scale (since 0.16, since 0.18 from the heating plan alone):** `HO.floorplan.heatScale(heat_range)` is the only source for picture and legend – span of the heating plan from `routines_store.heat_range` (lowest to highest heating value of the active routine, without "Aus"/frost protection below 10 °C or ≤ level OFF, whole degrees, at least 4 °C). **What the thermostats measure or have set does not shift the scale** (wish of the operator): every room gets the colour of its temperature on this fixed scale, below it without colour, above it full. `home_name` = title top left (default "Wohnung") with the mean temperature of the rooms; pointing (mouse) or the first tap (touch) shows room + room temperature there, room names are only in the plan in the editor. Motion glows magenta (no green).
+- **Weather effects on the floor plan (since 0.16, Pro `floorplan_weather`):**
+  - **Data:** `weather.fx(current)` is the only place that computes `fx = {kind: clear|partly|overcast|fog|rain|snow|storm|thunder, cloud, rain, snow, wind (0..1), gust (0..1, since 0.19.1: measured gusts on the scale of `wind`, never smaller), wind_dir, thunder, storm, hail, frost, heat (0..1), is_day}` from the WMO code and the readings (`cloud_cover, precipitation, rain, showers, snowfall, wind_direction_10m, wind_gusts_10m`, `temperature_2m` – the same egress entry `weather`); `/api/weather` delivers it as `fx`. Overlays: storm (gusts ≥ 60 km/h; `kind = storm` only in otherwise dry weather), hail (WMO 96/99), sleet (`rain` and `snow` at once), frost (dry and ≤ 0 °C), heat (from 28 °C by day with sun). Tests: `tests/core/test_weather.py` section 6.
+  - **Module `js/weather_fx.js`** (loaded after `floorplan.js`): `HO.weatherFx.mount(wrap, {after: svg, getMask, getSun, getShift})` → `update(fx, {level})`, `redraw()`, `gesture(on)`, `follow()`, `destroy()`. One `<canvas class="fp-fx">` directly behind the SVG (title/legend/tip lie above it, `pointer-events: none`). **Never anything inside:** after every picture rooms (fill) and walls (stroke) are punched out by `destination-out`; drawing only happens in the floor plan area (`getMask().box`). Colours only from the tokens `--fx-rain|snow|light|cloud|leaf|flash|fog|star` (`:root`, derived from existing tokens/the accent; light = white, leaves = accent), opacity in the module (mostly ≤ 0.35).
+  - **Layers (since 0.17.1, as of 0.20.1, from bottom to top):** snow cover/frost base tone · puddles in rain · sunlight as a straight gradient from the sun side (fades in at dusk, a low sun reaches further, heat intensifies it) · clouds (pre-drawn patches `blob()`: dark shadows in the sunlight by day, light veils at night) · fog banks · sun rays · stars, rarely a shooting star · wind as a flow around the house (from 10 km/h) · rain in two depths, every drop ends in a drop ring (drizzle finer) · hail · snow in two depths · leaves from 15 km/h · frost glitter · thunderstorm. **Day and night blend smoothly:** `dark` = 0…1 from the sun elevation of `getSun()` (0° … −6°), at night everything is muted (`pk`). Every kind of weather shows something outside – also at night and also without particles (`ui_home` checks that).
+  - **Margin around the house (since 0.18, since 0.19 not for clouds and fog):** precipitation, wind lines, sunshine, stars and lightning leave a narrow margin free around the building (`MARGIN`, soft transition `FEATHER`) – no drop and no glow sticks to the wall. **Clouds and fog reach up to the wall** (wish of the operator): they are drawn onto the main picture, everything with a margin onto a second picture in memory (`edgeCanvas`) that is punched out with the margin and laid on top (`onEdge`/`flushEdge`/`punch`).
+  - **Wind (since 0.19):** clouds **and fog banks** move in wind direction (`windVec`: `wind_dir` + north of the plan). Precipitation always falls from top to bottom and only leans with the wind. **Wind lines from 10 km/h** (`WIND_FX_MIN` = 10/80, because `fx.wind` = km/h ÷ `weather.WIND_MAX_KMH`), few and delicate in light wind; leaves since 0.20.1 from 15 km/h (`LEAF_MIN`).
+  - **Layout of the home page (since 0.19.2, `overview.js`, title "ComfyOS" – since 0.19.3 only on the phone; on the desktop the bar at the top shows greeting and date (`setTitle`, `.pt-short`/`.pt-long`) and `#heroBox` is hidden because the sidebar already names "ComfyOS"; logo and name lead to the home page, `[data-home-link]`):** header line **without a tile** `#heroBox` (`heroHTML`: greeting and date, `.section-head` as for Flow/Heizplan/Szenen) → `#warnBox` → **one** main tile (`section.card.home-card`) with the floor plan (`.card-head` with `.fp-tools`, `#fpHost`, `#fpFoot`) and below it home/away including the heating routine (`homeHTML`, `#homeBox`) → `#infoBox` (`infoHTML` = `houseLightHTML`: tile "Licht & Szenen" with house scene and all lights on/off + `statsHTML`: key figures on their own). The overall state ("Alles OK"/"Handlungsbedarf" including reasons from `issuesOf`) is in the tile "Geräte online" (`button.stat.stat-status`, `data-act="issues"` → filter "Probleme"). `partial()` redraws `#heroBox`, `#homeBox` and `#infoBox`. That way the floor plan is visible as completely as possible on opening; new content belongs below the floor plan, not into the main tile.
+  - **On the phone (≤ 560 px, since 0.19.2):** tools above the floor plan only as symbols (`.fp-tool .lbl` hidden, name in `title`/`aria-label`); below the floor plan the address stands alone in the first line, below it weather and warning sign in **one** line (`.fp-loc` → `.fp-addr` + `.fp-wxrow`; `ui_home` checks both).
+  - **Frame across the whole tile width (since 0.19.1, home page only, view only):** `#fpHost .fp-wrap.view:not(.cam)` has negative side margins the size of the inner padding of the tile (`--card-pad` on `.card`), `floorplan.js` `size()` sets the width of the SVG to the whole width. If the height limits the plan, it stays the same size in the middle and the section becomes wider (`st.viewW` in plan units, `applyZoomBox` works with it) – the weather effects get the space in addition (`fxMask().box` = rectangle of the SVG). In the editor the frame stays exactly the plan; the full screen (`cam`) is untouched. `ui_home` checks margin and centre.
+  - **Wind as a flow around the house (since 0.19.1, replaces the short straight strokes – they looked like rain falling upwards):**
+    - **Field:** `buildFlow` computes a potential flow through the stream function ψ on a coarse grid (at most `FLOW_CELLS` = 2800 cells, old devices 1400; reaches 30 % beyond the section): the free wind at the border, every connected part of the building (punch mask including margin, drawn into the grid) an obstacle with fixed ψ = mean of the free wind over its area; solved by over-relaxation. The lines thus wrap around every building shape, faster at the flanks, calmer in the lee.
+    - **Never compute per picture:** `ensureFlow` only rebuilds when the mask (object from `fxMask`, cached per section) or the wind direction changes, with a moving camera at most every 300 ms (`HO.weatherFx.stats.builds`). Per picture only lookups happen (`flowAt`: bilinear + two shear waves for the meandering + at most 4 eddies).
+    - **Lines:** `wisps` – particles with `TRAIL` points of history (12, old devices 8), drawn in `SHADES` brightness steps (one stroke call per step), fade in and out, live 1.8–3.6 s, start at random in the section. Number by area and wind force, speed 30…220 px/s – length and speed show the wind force. Reduced motion: half as many, as standing streamlines (no animation frame).
+    - **Eddies:** from `EDDY_MIN` (~12 km/h) small eddies detach in the lee alternately from both flanks (`eddies`, at most 4, sense of rotation of the shear layer), drift off at 55 % of the wind speed and fade in and out softly.
+    - **Interplay:** snow and leaves read the same field (snow still always falls downwards, at least 30 % of its speed; inside the building `flowAt` returns the free wind so that nothing gets stuck). Rain and fog damp the lines, in snowfall they carry the snow colour. The gusts (`fx.gust` compared with `fx.wind`) determine how strongly the one common value `wind` swells and subsides – it drives lines, clouds, fog, rain lean, snow and leaves.
+    - **Weather data stays one request:** gusts are in the existing request to Open-Meteo; the DWD only delivers the official warnings. No new egress.
+  - **Wind report and hourly forecast (since 0.18, part of `floorplan_weather`):** the same weather request additionally delivers `hourly` (2 days); `/api/weather` returns `wind_report` (`weather.wind_report`: km/h, gusts, direction, compass direction, Beaufort) and `today` (`weather.hourly_forecast`: 24 hours from now) – without the feature (with `enforcing()`) the route leaves out both. Interface: tapping the weather below the floor plan → `weatherSheet()`; in the full screen the unfolded details (`wxProHTML`). No additional request, no new egress.
+  - **Performance (do not soften):** ≤ 30 frames/s as long as something falls, flies or flashes; calm pictures (only clouds, fog, stars, frost) 12 frames/s, old devices 6; a clear day is a single calm picture. `devicePixelRatio` ≤ 2, particles by area and halved on old devices (without native pointer events or ≤ 2 cores); pause with a hidden tab and out of sight (`IntersectionObserver`); `prefers-reduced-motion` = one calm single picture without particles and without `requestAnimationFrame` (`HO.weatherFx.stats.frames` stays 0 – UI test `tests/ui/ui_home.py`).
+  - **Integration:** `floorplan.js` `syncFx()` at the end of `renderSVG` (view only, not in the editor, only with rooms); `fp.setWeather(fx)` from the weather request of the home page (`overview.js` `updateWeather`, no second request); the camera calls `redraw()`; `destroy()` of the floor plan clears the canvas away. The building shadow takes `cloud` for opacity `× (1 − 0.6·cloud)` and blur – only when effects are active. **Sun position in one place:** `sunNow()` in `floorplan.js` feeds shadow and `getSun()`.
+  - **Shadow at night (since 0.17.1):** below 1° sun elevation `nightShadowSVG` draws a soft, even halo around the building instead of the cast shadow (`.fp-shadow.night`, fades in down to −6°, clouds damp it) – also without weather effects.
+  - **Gate & settings:** without `floorplan_weather` (`HO.can`) nothing is mounted, shadows as before; weather data and symbol stay for everybody. `floorplan.json` `fx` (default on) and `fx_level` (`normal`|`subtle`) – pure presentation, no backend gate. **Switch:** button "Wetter" above the floor plan (`data-act="fpFx"`, in the full screen `pvFx`) → `fp.toggleFx()` (saves at once) – the same value as the setting in the editor; without address/weather a note explains the way. Preview only for owner/`COMFYOS_DEV=1` (`HO.license.licensed_plan`/`dev`): selection in the floor plan editor or `#home?fx=<kind>&time=day|dusk|night` (also `#plan`) → `HO.state.fxPreview` and `HO.state.fxTime` (until reload). Previews = `HO.weatherFx.KINDS` (14: the eight kinds plus `drizzle`, `sleet`, `breeze`, `hail`, `frost`, `heat`).
+- **Official weather warnings (since 0.17.1, `weather.alerts`, egress `weather_warnings`):**
+  - **Source:** WFS of the Deutscher Wetterdienst (`maps.dwd.de/geoserver/dwd/ows`, `typeName=dwd:Warnungen_Gemeinden`, verified 11/2026). The municipality containing the point is queried: `CQL_FILTER=INTERSECTS(THE_GEOM, POINT(<latitude> <longitude>))` – **with WFS 2.0 the latitude comes before the longitude**; `propertyName` saves the municipality borders. Only the coordinates from the weather cache rounded to 2 decimals are sent (`_geocode`, since 0.17.1 also remembers `cc`). If the place is not in Germany (`cc` ≠ `DE`), nothing is queried.
+  - **Selection (`parse_warnings`):** only `STATUS = Actual`, no `MSGTYPE = Cancel`, nothing expired, the same warning for several parts of a municipality once; sorted running → level → start, at most `WARN_MAX`. Per warning `{id, event, headline, level 1–4 (Minor…Extreme), onset, expires, active, description, instruction, windows}`; `windows` = window hint only for wind, thunderstorm, rain, hail, snow (`EC_GROUP` or a word in the event), not for frost, ice, fog, heat. Texts are limited and only go through `HO.esc` in the browser.
+  - **Request:** no background task of its own. `/api/weather` delivers `warnings` and `warnings_source` along (10 minutes cache, on failure known warnings stay until they expire, never an error). `floorplan.json` `warnings` (default on, only effective with address and `weather`) – switch with disclosure in the floor plan editor directly below the weather.
+  - **Interface (`overview.js`):** `#warnBox` above the main tile (`warnHTML`: most important warning, level, period, "+ n weitere"), window hint from the contacts (`windowTipHTML`: names open ones, live through `partial()`), "Details" → `warnSheet()`, hiding per device (`localStorage` `ho.warnHide`, holds until the warning changes) – the warning sign next to the weather (`.fp-warn`, in the full screen `.pv-chip.warn`) stays. The home page now asks for the weather every 30 s (`pollWeather`; browser cache 10 minutes).
+  - **Deliberately not included:** no event in the log, no flow trigger, no push – that would need a request in the background. Tests: `tests/core/test_weather.py` sections 7–9, `tests/security/test_privacy.py` 3b, `tests/ui/ui_home.py`. **Tests with an address in the floor plan replace `weather._client` and `weather._warn_client`.**
+- **Temperature colours & heat map follow the accent colour (since 0.15):** `HO.accentRGB()` reads `--accent`; `HO.tempRGB`/`tempColor`/`tempGradient` (heating plan, legend) run from grey to the accent colour, the heat map in the floor plan paints in `HO.accentRGB()` (part of the cache key). No fixed magenta/pink any more – derive new colour scales from the accent too.

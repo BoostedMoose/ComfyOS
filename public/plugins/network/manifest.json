@@ -1,0 +1,21 @@
+{
+  "id": "network",
+  "name": "Netzwerk",
+  "description": "Anwesenheit über die Erreichbarkeit im Heimnetz – zum Beispiel „Handy im WLAN“.",
+  "version": "1.0.0",
+  "api": 1,
+  "api_revision": 2,
+  "entry": "__init__:setup",
+  "id_prefixes": ["network:"],
+  "egress": [
+    {"key": "hosts", "desc": "Geräte im Heimnetz (Erreichbarkeit prüfen)", "scope": "lan"}
+  ],
+  "settings": [
+    {"key": "interval", "widget": "number", "label": "Prüfen alle … Sekunden", "default": 30, "min": 10, "max": 600, "step": 5},
+    {"key": "away_after", "widget": "number", "label": "Abwesend nach … Minuten ohne Antwort", "default": 10, "min": 1, "max": 120, "step": 1,
+     "hint": "Handys schlafen und antworten dann nicht sofort. Ein zu kleiner Wert meldet „abwesend“, obwohl das Handy zu Hause liegt."}
+  ],
+  "secrets": [],
+  "static": "static/",
+  "requires": []
+}

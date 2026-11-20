@@ -1,0 +1,261 @@
+{
+ "version": 1,
+ "seeded": true,
+ "scenes": [
+  {
+   "id": "hell",
+   "name": "Hell",
+   "palette": [
+    {
+     "ct": 233,
+     "b": 100
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "lesen",
+   "name": "Lesen",
+   "palette": [
+    {
+     "ct": 290,
+     "b": 100
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "fokus",
+   "name": "Konzentrieren",
+   "palette": [
+    {
+     "ct": 215,
+     "b": 100
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "entspannen",
+   "name": "Entspannen",
+   "palette": [
+    {
+     "ct": 447,
+     "b": 56
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "gedimmt",
+   "name": "Gedimmt",
+   "palette": [
+    {
+     "ct": 400,
+     "b": 30
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "nacht",
+   "name": "Nachtlicht",
+   "palette": [
+    {
+     "c": "#ff7a1a",
+     "b": 3
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "abendrot",
+   "name": "Abendrot",
+   "palette": [
+    {
+     "c": "#ff5e3a",
+     "b": 75
+    },
+    {
+     "c": "#ff9a3c",
+     "b": 70
+    },
+    {
+     "c": "#ffc46b",
+     "b": 65
+    },
+    {
+     "c": "#c2335a",
+     "b": 60
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "polarlicht",
+   "name": "Polarlicht",
+   "palette": [
+    {
+     "c": "#1de9b6",
+     "b": 60
+    },
+    {
+     "c": "#00b0ff",
+     "b": 55
+    },
+    {
+     "c": "#7c4dff",
+     "b": 55
+    },
+    {
+     "c": "#64ffda",
+     "b": 60
+    }
+   ],
+   "dynamic": true,
+   "speed": 60,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "ozean",
+   "name": "Ozean",
+   "palette": [
+    {
+     "c": "#0077b6",
+     "b": 60
+    },
+    {
+     "c": "#00b4d8",
+     "b": 60
+    },
+    {
+     "c": "#90e0ef",
+     "b": 55
+    },
+    {
+     "c": "#023e8a",
+     "b": 50
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "beere",
+   "name": "Beere",
+   "palette": [
+    {
+     "c": "#e20074",
+     "b": 60
+    },
+    {
+     "c": "#ff6fb3",
+     "b": 60
+    },
+    {
+     "c": "#7a1fa2",
+     "b": 55
+    }
+   ],
+   "dynamic": false,
+   "speed": 20,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "kerze",
+   "name": "Kerzenschein",
+   "palette": [
+    {
+     "c": "#ff8a2a",
+     "b": 35
+    },
+    {
+     "c": "#ffb347",
+     "b": 30
+    },
+    {
+     "c": "#ff6a00",
+     "b": 25
+    }
+   ],
+   "dynamic": true,
+   "speed": 60,
+   "rooms": [],
+   "variants": {}
+  },
+  {
+   "id": "0000000006",
+   "name": "Abendrot",
+   "palette": [
+    {
+     "c": "#ff7a3c",
+     "b": 80
+    },
+    {
+     "ct": 370,
+     "b": 40
+    }
+   ],
+   "dynamic": true,
+   "speed": 20,
+   "rooms": [
+    "wohnen"
+   ],
+   "variants": {
+    "wohnen": {
+     "lamps": {
+      "huebridge:lamp-1": {
+       "on": true,
+       "brightness": 60,
+       "mirek": 350
+      }
+     },
+     "updated": 1800000000.0
+    }
+   }
+  }
+ ],
+ "active": {
+  "room:wohnen": {
+   "scene": "0000000006",
+   "since": 1800000000.0,
+   "devices": [
+    "huebridge:lamp-1"
+   ],
+   "snapshot": {
+    "huebridge:lamp-1": {
+     "on": false
+    }
+   },
+   "excluded": [],
+   "offset": 0,
+   "step_at": 1800000000.0,
+   "brightness": 70
+  }
+ }
+}

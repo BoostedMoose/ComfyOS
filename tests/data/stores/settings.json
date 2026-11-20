@@ -1,0 +1,43 @@
+{
+  "https": false,
+  "log_sample_seconds": 300,
+  "log_retention_months": 13,
+  "allowed_hosts": [
+    "comfyos.example.com"
+  ],
+  "accent_color": "#3366cc",
+  "plugins": {
+    "disabled": [
+      "network"
+    ],
+    "trusted": [],
+    "settings": {
+      "mqtt": {
+        "host": "192.168.1.50",
+        "port": 1883,
+        "tls": false
+      }
+    }
+  },
+  "layout": {
+    "system": {
+      "2": [
+        [
+          "updateCard",
+          "backupCard"
+        ],
+        [
+          "securityCard"
+        ]
+      ]
+    },
+    "home": {
+      "1": [
+        [
+          "rc-wohnen",
+          "rc-kueche"
+        ]
+      ]
+    }
+  }
+}

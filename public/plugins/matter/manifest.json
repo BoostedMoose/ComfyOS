@@ -1,0 +1,20 @@
+{
+  "id": "matter",
+  "name": "Matter (Alexa, Apple Home, Google Home)",
+  "description": "Macht ComfyOS zur Matter-Bridge: freigegebene Geräte erscheinen in Alexa, Apple Home und Google Home – lokal, ohne Skill und ohne Konto. Bindet umgekehrt Matter-Geräte anderer Hersteller ein.",
+  "version": "1.0.2",
+  "api": 1,
+  "api_revision": 3,
+  "entry": "__init__:setup",
+  "id_prefixes": ["matter:"],
+  "egress": [
+    {"key": "runtime", "desc": "Node.js laden (Laufzeit des Matter-Beiprogramms)", "hosts": ["nodejs.org"],
+     "data": "IP-Adresse", "trigger": "Knopf „Einrichten“ in der Kachel"}
+  ],
+  "settings": [],
+  "secrets": ["storage_key", "passcode"],
+  "static": "static/",
+  "requires": ["cryptography"],
+  "helper": {"desc": "matter.js unter Node.js – eingesperrt, ohne Zugriff auf Dateien und ohne eigene Programme."},
+  "access": ["devices", "rooms", "scenes", "home"]
+}
