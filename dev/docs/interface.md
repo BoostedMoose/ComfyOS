@@ -160,8 +160,13 @@ when something was added.
   **first of all, before any measurement** (`lastHeight`, tracked by a `ResizeObserver`)
   and restores the scroll position. Whoever rebuilds `layout()`: measure nothing before the height is held
   (`ui_home` checks the scroll position in Chromium and WebKit).
-- **System load with the share of ComfyOS:** `/api/system/info` delivers `own` = `{cpu, ram, disk}` – CPU time of the
-  service in percent of all cores (`time.process_time`, smoothed over one minute like the load next to it), its
+- **System load with the share of ComfyOS:** `/api/system/info` delivers `cpu` = utilisation of all cores in percent
+  (busy ticks from `/proc/stat`, Linux only, since 0.27.5) and `own` = `{cpu, ram, disk}` – CPU time of the
+  service in percent of all cores (`time.process_time`), both measured over the same intervals from the start of the
+  service and smoothed over one minute alike (`api/system._cpu`), the share never above the utilisation. The CPU bar
+  shows the utilisation, the text names it with the load average (`12 % · Last 0.30 / 4 Kerne`); without `/proc/stat`
+  the load stays the measure. Before 0.27.5 the bar was the load average – it counts waiting processes, not
+  computing time, so on an idle machine the share of ComfyOS filled the whole bar. Further: its
   memory (`/proc/self/statm`, Linux only) and the space of its data, logs and backups (counted at most once per
   minute). In the tile the share lies hatched at the start of every bar (`.sys-own`); what the hatching means is said by
   a legend below the bars (`.sys-legend`) – nothing about it is written behind the individual bars.

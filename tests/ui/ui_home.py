@@ -110,8 +110,9 @@ LEAFY = {"partly", "rain", "breeze", "storm", "thunder", "hail"}
 WET = {"drizzle", "rain", "sleet", "storm", "thunder", "hail"}
 # previews of a clear sky: by day sun rays are always to be seen (since 0.26.1)
 SUNNY_DAY = {"clear", "frost", "heat"}
-# previews in which the moon of the preview night shines (since 0.27): a clear or partly cloudy sky, nothing falls
-MOONLIT = {"clear", "partly", "breeze", "frost", "heat"}
+# previews in which the moon of the preview night shines (since 0.27): a clear or partly cloudy sky – since 0.27.5 also
+# through the gaps of a broken cover while a little falls (drizzle, the storm); not under a closed cover or heavy rain/snow
+MOONLIT = {"clear", "partly", "breeze", "frost", "heat", "drizzle", "storm"}
 
 
 def run(p, engine, name, reduced=False, **ctx_args):

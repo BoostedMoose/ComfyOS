@@ -29,8 +29,9 @@
                   of light its shutter lets through, glow = {img, x, y, w, h}: how its light spreads through the home
                   (opacity = share of the light that arrives, through open doors too); a door between two rooms that
                   light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1)
-   fx (from /api/weather) = {kind, cloud, rain, snow, wind, gust, wind_dir, thunder, storm, hail, frost, frost_level,
-                             heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs
+   fx (from /api/weather) = {kind, cloud, rain, snow, fog, wind, gust, wind_dir, thunder, storm, hail, frost,
+                             frost_level, heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs.
+                             fx.fog is missing in older data: then the kind "fog" stands for 1.
 
    Inside (since 0.27): every window in an outer wall lets the sky light in by day, under any sky: a glow that spreads
    from the glass through the room and on through open doors, the way the heat map spreads warmth (computed by the
@@ -64,7 +65,9 @@
    precipitation) – no corner stays dark. The sunlight on top of it is a gentle gradient from the sunny side that never
    runs out to nothing – almost white at noon, a little warm with a low sun (--fx-sun mixed in, since 0.27.1 far less).
    How much of clouds, rays, stars and sunlight there is follows the cloud cover itself (fx.cloud), not the weather
-   kind – nothing jumps between two kinds (since 0.27.1).
+   kind – nothing jumps between two kinds (since 0.27.1). Since 0.27.5 no effect asks for the kind any more: every one
+   follows its own value, so all of them blend – sun rays in a shower, the moon through gaps in a storm, mist beside
+   rain. What rain, snow, fog and a thunderstorm put in front of sun and moon is one value (veilOf, 0 = clear air).
 
    Sun rays (since 0.25, reworked in 0.26.1 and 0.27): shafts of light of different shapes (broad, split into
    filaments, fine, widening) and very different lengths, each with its own life – it reaches out while it fades in,
@@ -136,6 +139,7 @@
   // and what direct sun adds to it
   const GLOW_SKY = 0.2, GLOW_SUN = 0.2
   const MOON_LIGHT = 0.3          // light of the full moon compared to the sun (what the eye makes of it, not the physics)
+  const MOON_TRACE = 0.02         // moonlight weaker than this is none (stats.moon stays 0)
   const PANE_W = 64, PANE_H = 128 // size of the image of a light patch
   // sound waves: rings under way at once, seconds one travels and beat that shapes them – each from the quietest
   // to the loudest speaker; grid cells a ring travels
@@ -148,7 +152,9 @@
   const RINGS = 5                 // brightness levels of the ripples (one stroke call per level)
   const MAX_RIPPLES = OLD ? 180 : 640
   const PUDDLE_UNIT = 0.27        // in the puddle image the radius 1 corresponds to this share of the image edge
-  const SUNNY = ['clear', 'partly', 'overcast', 'storm']   // weather kinds in which sunlight can be seen
+  // what weather stands between sun or moon and the ground (since 0.27.5): share of the light rain, snow and fog at
+  // full strength take away; a thunderstorm darkens on top of that
+  const VEIL_RAIN = 0.55, VEIL_SNOW = 0.6, VEIL_FOG = 0.9, VEIL_THUNDER = 0.4
   const TAU = Math.PI * 2
   // frames = drawn animation frames (UI test: with reduced motion it stays 0); wisps = wind lines,
   // cells/solid = cells of the flow grid and those of them that are building, builds = how often the field was computed
@@ -164,12 +170,12 @@
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
   /* Previews (owner/development): the eight weather kinds of the backend (fx.kind) and their overlays */
-  const BASE = { cloud: 0, rain: 0, snow: 0, wind: 0.15, wind_dir: 250, thunder: false, storm: false, hail: false, frost: false, heat: 0 }
+  const BASE = { cloud: 0, rain: 0, snow: 0, fog: 0, wind: 0.15, wind_dir: 250, thunder: false, storm: false, hail: false, frost: false, heat: 0 }
   const PRESETS = {
     clear: { cloud: 0.05, wind: 0.1 },
     partly: { cloud: 0.5, wind: 0.2 },
     overcast: { cloud: 0.95, wind: 0.1 },
-    fog: { cloud: 1, wind: 0.05 },
+    fog: { cloud: 1, fog: 1, wind: 0.05 },
     drizzle: { kind: 'rain', cloud: 0.85, rain: 0.15, wind: 0.1 },
     rain: { cloud: 0.9, rain: 0.6, wind: 0.35 },
     sleet: { kind: 'rain', cloud: 0.95, rain: 0.4, snow: 0.35, wind: 0.3 },
@@ -523,6 +529,7 @@
     let lastView = null                   // position of the plan in the frame drawn last (carry takes the weather along)
     let rayPan = [0, 0]                   // the sun rays have moved this far with the plan (pixels)
     let rayDrift = 0                      // … and this far across the light with the wind, like the clouds (pixels)
+    const inRays = {}                     // the shafts behind every window (by its index), alive like the rays outside
     // Self-regulation (STEPS). The performance tier of the device counts at the time of mounting – if an earlier
     // view learned "economical", this one starts right there.
     let step = HO.perf && HO.perf.low ? START_LOW : 0, lag = 1, cost = 0, sinceCheck = 0
@@ -534,8 +541,13 @@
     /* ---------- Day/night: 0 = day, 1 = night, dusk in between (sun 0° … −6°) */
     const sunNow = () => opts.getSun ? opts.getSun() : null
     const darkOf = sun => sun && typeof sun.el === 'number' ? clamp(-sun.el / 6, 0, 1) : (fx && fx.is_day === false ? 1 : 0)
-    // Sunlight can be seen: the sun is at most 6° below the horizon and the weather lets it through.
-    const sunlitOf = sun => !!sun && typeof sun.el === 'number' && sun.el > -6 && SUNNY.indexOf(fx.kind) >= 0
+    // Fog 0…1 (older weather data without fx.fog: the kind) and the veil 0…1 that rain, snow, fog and a thunderstorm
+    // put in front of sun and moon (since 0.27.5 – before, sunlight was bound to the kinds without precipitation).
+    const fogOf = () => !fx ? 0 : typeof fx.fog === 'number' ? clamp(fx.fog, 0, 1) : fx.kind === 'fog' ? 1 : 0
+    const veilOf = () => !fx ? 0 : clamp(1 - (1 - VEIL_RAIN * clamp(fx.rain || 0, 0, 1)) * (1 - VEIL_SNOW * clamp(fx.snow || 0, 0, 1)) *
+      (1 - VEIL_FOG * fogOf()) * (fx.thunder ? 1 - VEIL_THUNDER : 1), 0, 1)
+    // Sunlight can be seen: the sun is at most 6° below the horizon and the weather lets some of it through.
+    const sunlitOf = sun => !!sun && typeof sun.el === 'number' && sun.el > -6 && veilOf() < 0.95
 
     /* ---------- Size and particles */
     function resize() {
@@ -571,7 +583,7 @@
       if (!fx) return
       darkNow = darkOf(sunNow())
       const night = darkNow > 0.5
-      const key = [fx.kind, fx.rain, fx.snow, fx.wind, fx.gust, fx.cloud, !!fx.hail, frostOf(), fx.heat, !!fx.storm, night, level, step, W, H,
+      const key = [fx.kind, fx.rain, fx.snow, fogOf(), !!fx.thunder, fx.wind, fx.gust, fx.cloud, !!fx.hail, frostOf(), fx.heat, !!fx.storm, night, level, step, W, H,
         col.cloud, col.fog, col.light].join('|')
       if (key === seedKey) return
       seedKey = key
@@ -595,21 +607,22 @@
       if (!hadWisps || REDUCED) { warm = false; eddies = []; nextEddy = 0 }
       // Wolken: am Tag dunkle Schatten im Sonnenlicht, nachts helle Schleier
       // how much of all this there is follows the cloud cover itself, not the weather kind – nothing jumps between two kinds
-      const cover = clamp(fx.cloud || 0, 0, 1), sunny = SUNNY.indexOf(fx.kind) >= 0
-      const nCloud = sunny && cover >= 0.15 ? Math.round(2 + 2.2 * cover) : 0
+      const cover = clamp(fx.cloud || 0, 0, 1), fog = fogOf(), clearAir = 1 - veilOf()
+      const nCloud = cover >= 0.15 ? Math.round(2 + 2.2 * cover) : 0
       const tint = night ? col.fog : col.cloud
       if (nCloud && cloudTint !== tint) { cloudImg = [blob(tint), blob(tint)]; cloudTint = tint }
       fit(clouds, nCloud, () => { const w = rnd(0.42, 0.7) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.58, v: rnd(0.9, 1.1) } })
       clouds.forEach((c, i) => { c.img = cloudImg[i % 2]; c.night = night })
-      if (fx.kind === 'fog' && !fogImg.length) fogImg = [blob(col.fog), blob(col.fog)]
-      fit(banks, fx.kind === 'fog' ? 6 : 0, i => { const w = rnd(0.5, 0.9) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.5, img: fogImg[i % 2], v: rnd(4, 10) } })
-      // sun rays: many on a clear day, fewer the more clouds there are; each lives on its own (bornRay)
-      fit(rays, sunny ? Math.round((11 - 8 * cover) * soft) : 0, () => bornRay({}, true))
+      // fog banks: as many as the fog is dense – a thin mist has two, full fog six
+      if (fog >= 0.05 && !fogImg.length) fogImg = [blob(col.fog), blob(col.fog)]
+      fit(banks, fog >= 0.05 ? Math.max(1, Math.round(6 * fog)) : 0, i => { const w = rnd(0.5, 0.9) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.5, img: fogImg[i % 2], v: rnd(4, 10) } })
+      // sun rays: many on a clear day, fewer the more clouds there are and the more falls; each lives on its own (bornRay)
+      fit(rays, clearAir > 0.05 ? Math.max(1, Math.round((11 - 8 * cover) * (0.4 + 0.6 * clearAir) * soft)) : 0, () => bornRay({}, true))
       // heat: lines of hot air that rise from the walls in the sun (not with reduced motion – they only exist moving)
       fit(shimmers, fx.heat > 0 && !REDUCED ? Math.round(clamp(area / 16000, 8, 34) * soft * k * (0.4 + 0.6 * fx.heat)) : 0, () => ({ fresh: true, age: 0, life: 1 }))
       sunUp = sunlitOf(sunNow())
       // stars (clear to slightly cloudy night) and hoarfrost glitter: fixed places, only the brightness breathes
-      const sky = sunny ? Math.pow(1 - cover, 1.4) : 0
+      const sky = Math.pow(1 - cover, 1.4) * clearAir
       const dot = (lo, hi) => () => ({ u: Math.random(), v: Math.random(), r: rnd(lo, hi), a: rnd(0.3, 0.85), ph: rnd(0, TAU), sp: rnd(0.4, 1.6) })
       fit(stars, Math.round(clamp(area / 5200, 14, 110) * sky * soft), dot(0.5, 1.25))
       // (since 0.27.3 few, small and rare: a glint now and then, no glitter)
@@ -988,11 +1001,14 @@
       // tint of the sunlight: almost white at noon, a little warm in the morning and evening (since 0.27.1 far less
       // saturated; in steps, so that the shaft images are rarely rebuilt)
       const sunColor = mix(col.light, col.sun, Math.round((0.05 + 0.3 * Math.pow(low, 1.4)) * 20) / 20)
-      const dull = fx.rain > 0 || fx.snow > 0 || fx.kind === 'fog' || !!fx.thunder, cloud = clamp(fx.cloud || 0, 0, 1)
-      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.05) : col.light, (dull ? 0.075 : 0.16 - 0.06 * cloud) * day * k)
-      // moonlight: only in a clear night, by the phase of the moon and how high it stands
-      const moon = sun && sun.moon, open = (fx.kind === 'clear' || fx.kind === 'partly') && !dull
-      const moonlit = moon && moon.el > 0 && open ? moon.phase * Math.pow(1 - cloud, 1.5) * clamp(moon.el / 12, 0, 1) * clamp((dark - 0.6) / 0.4, 0, 1) : 0
+      // veil = what rain, snow, fog and a thunderstorm put in front of the light (0…1, since 0.27.5 instead of a yes/no)
+      const veil = veilOf(), clearAir = 1 - veil, cloud = clamp(fx.cloud || 0, 0, 1)
+      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.05) : col.light, ((0.16 - 0.06 * cloud) * clearAir + 0.075 * veil) * day * k)
+      // moonlight: by the phase of the moon, how high it stands and what clouds and veil let through – it shines
+      // through gaps in any weather; below a trace (MOON_TRACE) it is none
+      const moon = sun && sun.moon
+      const moonRaw = moon && moon.el > 0 ? moon.phase * Math.pow(1 - cloud, 1.5) * clearAir * clamp(moon.el / 12, 0, 1) * clamp((dark - 0.6) / 0.4, 0, 1) : 0
+      const moonlit = moonRaw > MOON_TRACE ? moonRaw : 0
       stats.moon = moonlit
       // 1) Ground and air: snow cover brightens the surroundings, hoarfrost lies in patches of ice needles
       const raining = fx.rain > 0, wetGoal = raining ? 0.45 + 0.85 * fx.rain : 0
@@ -1099,12 +1115,12 @@
       // 2) Sunlight: the rays arrive practically parallel – so a straight gradient across the image, brighter on the
       //    sunny side, in a transparent warm white. It never runs out to nothing: the far side keeps a third of it
       //    (together with the daylight above no side looks like night). Fades in at dusk, a low sun reaches further;
-      //    not in fog, rain, snow, thunderstorm. Heat: a little stronger, plus a bright veil.
+      //    weaker the more rain, snow, fog or a thunderstorm veil it. Heat: a little stronger, plus a bright veil.
       // half the extent of the frame in the direction of the sun
       const reach = sunlit ? 0.5 * (Math.abs(sun.dir[0]) * box.w + Math.abs(sun.dir[1]) * box.h) : 0
       if (sunlit) {
         onEdge()
-        const strength = (0.1 - 0.07 * cloud) * (1 - 0.4 * cloud) * up * (1 + 0.35 * heat) * k
+        const strength = (0.1 - 0.07 * cloud) * (1 - 0.4 * cloud) * clearAir * up * (1 + 0.35 * heat) * k
         const far = 0.35 + 0.65 * low
         const g = ctx.createLinearGradient(mx + sun.dir[0] * reach, my + sun.dir[1] * reach, mx - sun.dir[0] * reach * far, my - sun.dir[1] * reach * far)
         g.addColorStop(0, rgba(sunColor, 1)); g.addColorStop(0.5, rgba(sunColor, 0.6)); g.addColorStop(1, rgba(sunColor, 0.33))
@@ -1125,17 +1141,19 @@
         if (dt) { c.x += wv[0] * pace * CLOUD_PACE * c.v * dt; c.y += wv[1] * pace * CLOUD_PACE * c.v * dt }
         if (c.x < box.x - c.w / 2) c.x += box.w + c.w; if (c.x > bx1 + c.w / 2) c.x -= box.w + c.w
         if (c.y < box.y - c.h / 2) c.y += box.h + c.h; if (c.y > by1 + c.h / 2) c.y -= box.h + c.h
-        ctx.globalAlpha = c.night ? (0.06 + 0.06 * cloud) * k * dark : (0.44 - 0.17 * cloud) * k * (1 - dark)
+        ctx.globalAlpha = c.night ? (0.06 + 0.06 * cloud) * k * dark : (0.44 - 0.17 * cloud) * (1 - 0.4 * veil) * k * (1 - dark)
         ctx.drawImage(c.img, c.x - c.w / 2, c.y - c.h / 2, c.w, c.h)
       }
-      // 4) Fog: an even veil, above it sluggish banks that move with the wind – up to the wall (without a margin)
-      if (banks.length) {
-        wash(col.fog, 0.05 * pk)
+      // 4) Fog: an even veil, above it sluggish banks that move with the wind – up to the wall (without a margin); as
+      //    dense as fx.fog (a thin mist beside rain, full fog)
+      const fog = fogOf()
+      if (banks.length && fog > 0) {
+        wash(col.fog, 0.05 * pk * fog)
         for (const b of banks) {
           if (dt) { b.x += wv[0] * b.v * (0.5 + wind) * dt; b.y += wv[1] * b.v * (0.5 + wind) * dt }
           if (b.x < box.x - b.w / 2) b.x += box.w + b.w; if (b.x > bx1 + b.w / 2) b.x -= box.w + b.w
           if (b.y < box.y - b.h / 2) b.y += box.h + b.h; if (b.y > by1 + b.h / 2) b.y -= box.h + b.h
-          ctx.globalAlpha = 0.16 * pk
+          ctx.globalAlpha = 0.16 * pk * (0.5 + 0.5 * fog)
           ctx.drawImage(b.img, b.x - b.w / 2, b.y - b.h / 2, b.w, b.h)
         }
       }
@@ -1150,7 +1168,8 @@
         const cloudy = cloud >= 0.2, ax = -sun.dir[0], ay = -sun.dir[1], angle = Math.atan2(ay, ax)
         const across = 0.5 * (Math.abs(ay) * box.w + Math.abs(ax) * box.h), span = Math.max(box.w, box.h)
         // strongest where gaps in the clouds bundle the light; under a closed cover they fade away
-        const power = (0.13 + 0.04 * Math.sin(Math.PI * cloud)) * clamp((1 - cloud) / 0.1, 0.12, 1) * (1 + 0.35 * heat * (1 - cloud)) * up * k
+        // and the rain, snow and fog in front of the sun (veil) – so a shower under a broken sky has rays too
+        const power = (0.13 + 0.04 * Math.sin(Math.PI * cloud)) * clamp((1 - cloud) / 0.1, 0.12, 1) * (1 + 0.35 * heat * (1 - cloud)) * clearAir * up * k
         // The rays wander with the wind like the clouds whose gaps they fall through: what shows from above is the
         // movement across the light, at the pace of the clouds (on a clear day only with the haze, RAY_HAZE). If the
         // wind blows almost along the light, they still wander slowly to one side (RAY_SIDE_MIN) – standing rays under
@@ -1339,7 +1358,7 @@
           }
         }
         // interplay: drifting snow in snowfall (snow colour), rain and fog dampen the lines
-        const strength = clamp(0.5 + (fx.wind || 0) * 1.1, 0.5, 1) * (1 - 0.4 * (fx.rain || 0)) * (banks.length ? 0.7 : 1)
+        const strength = clamp(0.5 + (fx.wind || 0) * 1.1, 0.5, 1) * (1 - 0.4 * (fx.rain || 0)) * (1 - 0.3 * fogOf())
         ctx.strokeStyle = fx.snow > 0 ? col.snow : col.rain; ctx.lineWidth = 1.1; ctx.lineCap = 'butt'
         for (let b = 0; b < SHADES; b++) {
           const s = shades[b]
@@ -1527,7 +1546,7 @@
       edgeCtx.restore()
       mainCtx.restore()
       punch(mainCtx, false)      // clouds and fog: exactly up to the wall, nothing inside
-      drawIndoor(mask, sun, t, { day, dark, k, cloud, dull, sunlit, sunColor, moonlit, heat })
+      drawIndoor(mask, sun, t, dt, { day, dark, k, cloud, veil, sunlit, sunColor, moonlit, heat })
       if (!shown) { shown = true; setTimeout(() => { canvas.style.opacity = '' }, 30) }
     }
     /* The inside layer (since 0.27), drawn onto the main image after the building was punched out: light through the
@@ -1536,9 +1555,10 @@
        open doors and stops at walls; it is drawn as bright as the window is right now. Rays – the patch on the floor
        and the shafts above it – exist only at windows the sun or the moon shines into, and they follow its position.
        Patch, shafts and sound are clipped to their room; the walls are cut out again afterwards, only the bloom of a
-       sunlit window lies on top of its wall. e = what the frame already knows: day and dark (0…1), k (strength),
-       cloud, dull (precipitation or fog), sunlit, sunColor, moonlit (0…1), heat. */
-    function drawIndoor(mask, sun, t, e) {
+       sunlit window lies on top of its wall. dt = seconds since the last frame (0 = a calm image). e = what the frame
+       already knows: day and dark (0…1), k (strength), cloud, veil (what rain, snow, fog, thunder put in front of the
+       light, 0…1), sunlit, sunColor, moonlit (0…1), heat. */
+    function drawIndoor(mask, sun, t, dt, e) {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, v = mask.view, c = mainCtx, box = mask.box
       stats.windows = stats.beams = stats.sound = stats.doors = 0
       if (!indoor || !v || !(v.s > 0)) return
@@ -1572,8 +1592,6 @@
         c.globalAlpha = alpha; c.drawImage(img, 0, 0)
         c.restore()
       }
-      // a fixed random number 0…1 for n – what belongs to a window keeps its place without being stored
-      const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x) }
       c.save()
       c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.clip()
       // 1) Light through the windows. What every window lets in: sky = the light of the sky by day, under any sky;
@@ -1582,14 +1600,15 @@
       const blooms = [], lights = [], bright = {}
       let tint = e.sunColor, patchImg = null
       if (!fx.indoor_only && indoor.windows.length) {
-        const skylight = e.day * (e.dull ? 0.5 : 1 - 0.4 * e.cloud)
+        const skylight = e.day * ((1 - 0.4 * e.cloud) * (1 - e.veil) + 0.5 * e.veil)
         let dir = null, el = 0, power = 0, soft = 0
         if (e.sunlit && sun.el > 0.5) {
           // through clouds less of it arrives; while clouds pass in front of the sun it swells and fades slowly
           const passing = 1 - 0.25 * Math.sin(Math.PI * e.cloud) * (1 - Math.sin(t * 0.19) * Math.sin(t * 0.07 + 1.3))
-          dir = sun.dir; el = sun.el; soft = Math.round(e.cloud * 2)
-          power = (1 - 0.8 * Math.pow(e.cloud, 1.5)) * passing * clamp(sun.el / 4, 0, 1) * (1 + 0.25 * e.heat)
-        } else if (e.moonlit > 0.02) {
+          // rain, snow and fog dim it and scatter it: the patch gets weaker and softer (since 0.27.5)
+          dir = sun.dir; el = sun.el; soft = Math.round(clamp(e.cloud + e.veil, 0, 1) * 2)
+          power = (1 - 0.8 * Math.pow(e.cloud, 1.5)) * (1 - e.veil) * passing * clamp(sun.el / 4, 0, 1) * (1 + 0.25 * e.heat)
+        } else if (e.moonlit > 0) {
           dir = sun.moon.dir; el = sun.moon.el; power = MOON_LIGHT * e.moonlit; tint = col.moon
         }
         if (dir) patchImg = paneImg[tint + '|' + soft] || (paneImg[tint + '|' + soft] = pane(tint, soft))
@@ -1652,30 +1671,43 @@
         spread()
         c.restore()
       }
-      // Shafts of light in the air of the room (the sun rays of the outside, continued): from the window along the light
-      // to the patch on the floor, a few per window, each shimmering and wandering a little; dust glints in them.
+      // Shafts of light in the air of the room – the sun rays of the outside, continued, and alive the same way (since
+      // 0.27.5): each one is a ray of its own (bornRay) that reaches out while it fades in, shimmers, breathes in width,
+      // sways a little and fades out (rayGlow); then it appears at another place of the glass in another shape. Below
+      // clouds they come and go faster, as outside. Dust drifts along them and glints. They do not wander with the
+      // clouds: a window stays where it is, passing clouds only make its light swell and fade (`passing`).
       const shafts = l => {
-        const beams = beamsOf(tint), n = clamp(Math.round(l.len / v.s * 1.5), 2, 4), angle = Math.atan2(l.ly, l.lx)
+        const beams = beamsOf(tint), n = clamp(Math.round(l.len / v.s * 1.5), 2, 4) + 1, angle = Math.atan2(l.ly, l.lx)
         const ux = l.b[0] - l.a[0], uy = l.b[1] - l.a[1]
+        const list = fit(inRays[l.index] || (inRays[l.index] = []), n, () => bornRay({ u: rnd(0.1, 0.9) }, true))
         c.save()
         c.globalCompositeOperation = 'lighter'
-        for (let i = 0; i < n; i++) {
-          const h1 = hash(l.index * 7.3 + i * 3.1), h2 = hash(l.index * 5.7 + i * 1.9 + 4), h3 = hash(l.index * 2.3 + i * 8.1 + 9)
-          const pos = clamp((i + 0.5) / n + 0.2 * (h1 - 0.5) + 0.06 * Math.sin(t * 0.13 + h2 * TAU), 0.06, 0.94)
-          const shine = 0.6 + 0.4 * Math.sin(t * (0.25 + 0.45 * h3) + h1 * TAU) * Math.sin(t * 0.09 + h2 * TAU)
-          const wide = l.len * (0.2 + 0.22 * h2), long = (l.near + l.deep * (0.85 + 0.5 * h3) + 0.6) * v.s
-          c.save()
-          c.translate(l.a[0] + ux * pos, l.a[1] + uy * pos); c.rotate(angle + 0.05 * (h1 - 0.5))
-          c.globalAlpha = clamp(0.3 * l.direct * shine * e.k, 0, 0.34)
-          c.drawImage(beams[i % 3], 0, -wide / 2, long, wide)
-          c.restore()
-        }
         c.fillStyle = tint
-        for (let i = 0; i < (OLD ? 2 : 4); i++) {
-          const h1 = hash(l.index * 3.9 + i * 6.7 + 2), h2 = hash(l.index * 1.3 + i * 4.3 + 6), h3 = hash(l.index * 9.1 + i * 2.9 + 1)
-          const u = (h1 + t * (0.012 + 0.02 * h2)) % 1, across = 0.12 + 0.76 * h3 + 0.03 * Math.sin(t * 0.4 + h1 * TAU), far = (l.near + l.deep) * u
-          c.globalAlpha = clamp(0.9 * l.direct * Math.min(1, u / 0.15) * (1 - u) * (0.5 + 0.5 * Math.sin(t * 1.7 + h2 * TAU)) * e.k, 0, 0.6)
-          c.fillRect(l.a[0] + ux * across + l.lx * far - 0.8, l.a[1] + uy * across + l.ly * far - 0.8, 1.6, 1.6)
+        for (const r of list) {
+          if (dt && (r.age += dt) >= r.life + r.rest) { bornRay(r, false); r.u = rnd(0.1, 0.9) }
+          const shine = rayGlow(r, t)
+          if (shine < 0.01) continue
+          let out = Math.min(1, r.age / (0.5 * r.life))
+          out = r.grow + (1 - r.grow) * out * out * (3 - 2 * out)
+          const pos = clamp(r.u + 0.03 * Math.sin(t * 0.11 + r.ph2), 0.06, 0.94)
+          const wide = l.len * (0.12 + 0.25 * r.w / 0.16) * (0.85 + 0.15 * Math.sin(t * r.sp2 + r.ph))
+          const long = (l.near + l.deep * (0.85 + 0.5 * r.len / 1.35) + 0.6) * v.s * out
+          const alpha = clamp(0.3 * l.direct * r.a * shine * e.k, 0, 0.34)
+          c.save()
+          c.translate(l.a[0] + ux * pos, l.a[1] + uy * pos)
+          c.rotate(angle + r.tilt + 0.012 * Math.sin(t * r.sp2 * 0.7 + r.ph2))
+          // a soft glow around the shaft, then the shaft itself – as outside
+          c.globalAlpha = alpha * 0.45
+          c.drawImage(beams[0], -long * 0.04, -wide * 1.3, long * 1.08, wide * 2.6)
+          c.globalAlpha = alpha
+          c.drawImage(beams[r.shape], 0, -wide / 2, long, wide)
+          for (const m of r.motes) {
+            if (dt && (m.u += m.s * dt) > 0.95) m.u = 0.05
+            const glint = Math.min(1, m.u / 0.15) * (1 - m.u) * (0.5 + 0.5 * Math.sin(t * 1.7 + m.ph))
+            c.globalAlpha = clamp(alpha * 3.4 * glint, 0, 0.6)
+            c.fillRect(m.u * long - m.r, (m.v + 0.06 * Math.sin(t * 0.4 + m.ph)) * wide - m.r, m.r * 2, m.r * 2)
+          }
+          c.restore()
         }
         c.restore()
       }

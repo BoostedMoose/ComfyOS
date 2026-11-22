@@ -155,6 +155,10 @@ FROST_FULL_C = 0.0     # °C   -> frost_level = 1; at FROST_C it is FROST_MIN
 FROST_MIN = 0.05
 HEAT_C = 28.0          # °C   -> heat > 0 (only by day in sunshine)
 HEAT_MAX_C = 38.0      # °C   -> heat = 1
+HEAT_CLOUD_FULL = 0.4  # cloud cover up to which the heat haze is full (since 0.27.5; before only "clear" and "partly")
+HEAT_CLOUD_NONE = 0.9  # cloud cover from which there is none
+MIST_RH = 95.0         # %    -> above this humidity a thin mist (fog > 0) without the fog codes (since 0.27.5)
+MIST_MAX = 0.4         #      -> fog at 100 % humidity without the fog codes
 
 
 # Wind force on the Beaufort scale: (upper limit in km/h, name); above that hurricane
@@ -223,14 +227,17 @@ def hourly_forecast(hourly: Any, now_iso: Any) -> list[dict]:
 def fx(cur: dict) -> dict:
     """Weather effects on the floor plan – computed in exactly this place from WMO code and readings.
 
-    kind: clear | partly | overcast | fog | rain | snow | storm | thunder; intensities 0..1.
+    kind: clear | partly | overcast | fog | rain | snow | storm | thunder; intensities 0..1. The kind names the
+    weather; the intensities follow their own readings in every kind (since 0.27.5), so the effects blend: rain and
+    snow as measured (the code keeps them visible), fog 0..1 (1 with the fog codes, a thin mist from the humidity),
+    cloud from the cover.
     Wind is an overlay: gusts from STORM_GUSTS_KMH set storm=True (in dry weather also kind=storm),
     rain/snow/thunderstorm keep their kind. gust = measured gusts on the same scale as wind (never smaller
     than the mean wind) – from it the interface derives how strongly the wind swells and subsides. wind_kmh =
     measured mean wind in km/h (wind arrow on the floor plan; `wind` is capped and raised in a storm).
     Further overlays: hail (thunderstorm with hail),
-    sleet (rain and snow at once), frost (dry and at most FROST_C; frost_level 0..1 = how much of it, full from FROST_FULL_C),
-    heat (0..1 from HEAT_C, by day in sunshine)."""
+    sleet (rain and snow at once), frost (at most FROST_C; frost_level 0..1 = how much of it, full from FROST_FULL_C,
+    thinner the more falls), heat (0..1 from HEAT_C, by day, fading with clouds and rain)."""
     try:
         code = int(cur.get("weather_code"))
     except (TypeError, ValueError):
@@ -259,24 +266,37 @@ def fx(cur: dict) -> dict:
         kind = "storm"
     if cloud_pct is None:
         cloud_pct = {"clear": 5, "partly": 50, "overcast": 90, "fog": 100, "storm": 70}.get(kind, 95)
-    rain = 0.0
+    # Since 0.27.5 every effect follows its own reading, whatever the kind – so they blend into each other: what is
+    # measured falls (a shower under a sunny sky too), the code only guarantees that it stays visible.
+    rain = rain_mm / RAIN_MAX_MM
     if kind == "rain":   # Nieseln bleibt sichtbar, Schauer/starker Regen mindestens mittel
-        rain = max(rain_mm / RAIN_MAX_MM, 0.5 if 80 <= code <= 82 or code in (63, 65, 66, 67) else 0.15)
-    elif kind in ("thunder", "storm") and rain_mm > 0:
-        rain = max(rain_mm / RAIN_MAX_MM, 0.15)
-    snow = max(snow_cm / SNOW_MAX_CM, 0.25) if kind == "snow" else 0.0
-    if kind == "rain" and snow_cm > 0:        # sleet: both fall
-        snow = max(snow_cm / SNOW_MAX_CM, 0.15)
-    elif kind == "snow" and rain_mm > 0:
-        rain = max(rain_mm / RAIN_MAX_MM, 0.15)
+        rain = max(rain, 0.5 if 80 <= code <= 82 or code in (63, 65, 66, 67) else 0.15)
+    elif rain_mm > 0:    # rain beside snow (sleet), in a thunderstorm, a storm or a shower from a bright sky
+        rain = max(rain, 0.15)
+    snow = snow_cm / SNOW_MAX_CM
+    if kind == "snow":
+        snow = max(snow, 0.25)
+    elif snow_cm > 0:    # sleet: both fall
+        snow = max(snow, 0.15)
     raw_temp = cur.get("temperature_2m")
     temp = float(raw_temp) if isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool) and raw_temp == raw_temp else None
     is_day = bool(cur.get("is_day", 1))
-    frost = temp is not None and temp <= FROST_C and kind in ("clear", "partly", "overcast", "fog")
-    frost_level = FROST_MIN + (1 - FROST_MIN) * min(1.0, (FROST_C - temp) / (FROST_C - FROST_FULL_C)) if frost else 0.0
-    heat = (temp - HEAT_C) / (HEAT_MAX_C - HEAT_C) if temp is not None and temp >= HEAT_C and is_day and kind in ("clear", "partly") else 0.0
+    cloud = _unit(cloud_pct / 100)
+    # fog: full with the fog codes, otherwise a thin mist from the humidity of nearly saturated air
+    humidity = _number(cur.get("relative_humidity_2m"))
+    fog = 1.0 if kind == "fog" else MIST_MAX * (humidity - MIST_RH) / (100 - MIST_RH) if humidity is not None and humidity > MIST_RH else 0.0
+    # hoarfrost from FROST_C, thinner the more falls (rain washes it away, snow covers it)
+    frost_level = 0.0
+    if temp is not None and temp <= FROST_C:
+        frost_level = (FROST_MIN + (1 - FROST_MIN) * min(1.0, (FROST_C - temp) / (FROST_C - FROST_FULL_C))) * (1 - min(1.0, max(rain, snow)))
+    frost = _unit(frost_level) > 0
+    # heat haze: in sunshine – full up to HEAT_CLOUD_FULL cloud cover, gone at HEAT_CLOUD_NONE, less in rain
+    heat = 0.0
+    if temp is not None and temp >= HEAT_C and is_day:
+        sunshine = max(0.0, min(1.0, (HEAT_CLOUD_NONE - cloud) / (HEAT_CLOUD_NONE - HEAT_CLOUD_FULL)))
+        heat = (temp - HEAT_C) / (HEAT_MAX_C - HEAT_C) * sunshine * (1 - min(1.0, rain))
     wind_n = max(wind, gusts * 0.75 if storm else 0.0) / WIND_MAX_KMH
-    return {"kind": kind, "cloud": _unit(cloud_pct / 100), "rain": _unit(rain), "snow": _unit(snow),
+    return {"kind": kind, "cloud": cloud, "rain": _unit(rain), "snow": _unit(snow), "fog": _unit(fog),
             "wind": _unit(max(wind_n, 0.75) if storm else wind_n), "gust": _unit(max(gusts, wind) / WIND_MAX_KMH),
             "wind_kmh": int(round(min(max(wind, 0.0), 400.0))), "wind_dir": int(_f(cur.get("wind_direction_10m"))) % 360,
             "thunder": kind == "thunder", "storm": storm, "hail": code in (96, 99), "frost": frost, "frost_level": _unit(frost_level),

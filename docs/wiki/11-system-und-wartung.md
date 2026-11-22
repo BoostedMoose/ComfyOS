@@ -31,7 +31,7 @@ Unter *System → Update* sucht **Nach Updates suchen** das neueste Release. Com
 
 ## Systemauslastung
 
-Die Kachel **Systemauslastung** zeigt CPU, Arbeitsspeicher und Speicherplatz, solange die Seite offen ist. Ein schraffiertes Stück in jedem Balken zeigt den Anteil von ComfyOS selbst.
+Die Kachel **Systemauslastung** zeigt CPU (Auslastung aller Kerne, daneben die Systemlast), Arbeitsspeicher und Speicherplatz, solange die Seite offen ist. Ein schraffiertes Stück in jedem Balken zeigt den Anteil von ComfyOS selbst.
 
 ## Ältere Geräte und Wanddisplays
 

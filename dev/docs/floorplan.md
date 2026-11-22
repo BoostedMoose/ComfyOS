@@ -4,6 +4,30 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.27.5 – every effect blends with every other, window shafts live like the rays outside
+
+- **No effect asks for the weather kind any more.** The kind (`fx.kind`) still names the weather; every effect follows
+  its own value, so they blend and the picture follows the measurement:
+  - **Backend (`weather.fx`):** rain and snow as measured in every kind (a shower from a bright sky falls; the codes
+    only keep them visible – drizzle at least 0.15, showers 0.5, snow 0.25); new field `fog` 0…1 – 1 with the fog
+    codes 45/48, otherwise a thin mist from the humidity (`MIST_RH` 95 % → 0, 100 % → `MIST_MAX` 0.4); hoarfrost
+    from `FROST_C` in every kind, thinner the more falls (× (1 − max(rain, snow))); heat haze fades with the cloud
+    cover (`HEAT_CLOUD_FULL` 0.4 → full, `HEAT_CLOUD_NONE` 0.9 → none) and with rain instead of ending with "partly".
+    `fx` grows by one field (`fog`); cached weather without it is read as before (the kind "fog" stands for 1).
+  - **Browser (`weather_fx.js`):** `veilOf()` = what rain, snow, fog and a thunderstorm put in front of sun and moon
+    (0…1, `VEIL_RAIN|SNOW|FOG|THUNDER`); `SUNNY` and the yes/no `dull` are gone. Sunlight shows while the veil is
+    below 0.95: gradient, number and strength of the rays, the patches behind the windows and the daylight wash
+    follow `1 − veil` – so sun rays shine in a shower depending on the cloud cover. Moonlight likewise through gaps in
+    any weather (below `MOON_TRACE` it is none). Cloud shadows in every kind; fog banks as many and as dense as
+    `fogOf()`; stars × `1 − veil`. Previews: `BASE.fog` 0, the preview `fog` has `fog: 1`.
+  - **Effect lab:** "Nebel" is a slider (0…1) instead of a flag; `kindOf` names it fog above 0.4.
+- **Shafts behind the windows live like the rays outside:** every shaft is a ray of its own (`bornRay`, kept per window
+  in `inRays`): it reaches out while it fades in, shimmers (`rayGlow`), breathes in width, sways, fades out and
+  appears at another place of the glass in another shape; below clouds faster and with pauses; glow around the core and
+  dust that drifts along it – the same code paths and numbers as outside. They do not wander with the clouds: the
+  window stays where it is, passing clouds make its light swell and fade.
+- **UI test `ui_home`:** moonlight also in the previews `drizzle` and `storm` (gaps in the cover).
+
 ## Since 0.27.4 – free bubbles, sound of further boxes, gentler frost
 
 - **Bubbles stay free:** the effect canvas lies above the SVG, so since 0.27 the inside layer (window light, glow, sound
@@ -24,7 +48,7 @@ when something was added.
   `--fx-light` (before 20–65 %) – almost white by day, a little warm in the morning and evening.
 - **Continuous in the cloud cover:** number and strength of the sun rays, the cloud shadows, the stars, the sunlight
   gradient and the direct light through the windows follow `fx.cloud`, no longer steps by `fx.kind` (the kind still
-  decides *whether* sunlight shows: `SUNNY`). Rays fade away towards a closed cover.
+  decides *whether* sunlight shows: `SUNNY` – gone since 0.27.5, see there). Rays fade away towards a closed cover.
 - **Glow of the windows (indirect light, since 0.27.2 – before a directed patch at windows and doors that read as a
   second ray):** `floorplan.js` `lightFields()` measures for every window the path through
   the home on a coarse grid – the way the heat map spreads warmth (Dijkstra, walls stop it, the doors in
@@ -65,7 +89,7 @@ when something was added.
   `SOUND_PERIOD`, `SOUND_BPM`, `SOUND_REACH` as pairs): few, small, slow rings when quiet, more and further when loud,
   slower than before in both cases. Speakers of different volume no longer pulse in step.
 - **Effect lab:** the weather is always made from the sliders; a preset only sets them and the kind is derived as the
-  backend derives it (`kindOf` in `dev/fxlab/lab.js`, new flag "Nebel"). "Eigene Mischung" shows when a slider left
+  backend derives it (`kindOf` in `dev/fxlab/lab.js`, new flag "Nebel" – a slider since 0.27.5). "Eigene Mischung" shows when a slider left
   the preset.
 
 ## Since 0.27 – light through the windows, sound waves, moon, frost flowers, mirroring puddles, effect lab
@@ -117,7 +141,7 @@ when something was added.
 - **Effect lab (`dev/fxlab.py`, `dev/fxlab/`):** the floor plan with all effects on a page of its own – see
   `dev/README.md`. Use it to look at a change before the UI tests run on Windows.
 - **UI test `ui_home`:** the rooms stay untouched only if neither light nor sound is there; by day every preview lets
-  light in, sunny previews show a patch by day and by night (moon), moonlight exactly with an open sky.
+  light in, sunny previews show a patch by day and by night (moon), moonlight exactly with an open sky (since 0.27.5 also through the gaps in `drizzle` and `storm`).
 
 ## Since 0.26.1 – daylight, living sun rays, hoarfrost
 

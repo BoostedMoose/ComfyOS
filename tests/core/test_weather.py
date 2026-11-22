@@ -161,7 +161,7 @@ n = fx({"weather_code": 0, "is_day": 0})
 assert n["is_day"] is False and n["kind"] == "clear" and n["cloud"] == 0.05, n
 assert fx({})["kind"] == "clear" and fx({"weather_code": "x", "rain": float("nan")})["rain"] == 0   # broken values: no error
 for v in (fx(cur(c, rain=99, snowfall=99, wind_speed_10m=999, wind_gusts_10m=999, cloud_cover=500)) for c in (0, 3, 45, 63, 73, 95)):
-    assert all(0 <= v[k] <= 1 for k in ("cloud", "rain", "snow", "wind", "gust")) and 0 <= v["wind_dir"] < 360, v
+    assert all(0 <= v[k] <= 1 for k in ("cloud", "rain", "snow", "fog", "wind", "gust", "frost_level", "heat")) and 0 <= v["wind_dir"] < 360, v
 # Gusts (since 0.19.1): same scale as wind, never smaller than the mean wind; without a reading = mean wind
 assert fx(cur(2, wind_speed_10m=20, wind_gusts_10m=46))["gust"] == 0.57 and fx(cur(2, wind_speed_10m=20))["gust"] == 0.25
 assert fx(cur(2, wind_speed_10m=20, wind_gusts_10m=5))["gust"] == 0.25 and fx({})["gust"] == 0
@@ -177,13 +177,25 @@ assert fx(cur(0, temperature_2m=4.1))["frost"] is False and fx(cur(0))["frost"] 
 assert fx(cur(0, temperature_2m=4))["frost"] is True and fx(cur(0, temperature_2m=4))["frost_level"] == 0.05
 assert fx(cur(0, temperature_2m=2))["frost_level"] == 0.53 and fx(cur(0, temperature_2m=0))["frost_level"] == 1
 assert fx(cur(0, temperature_2m=-8))["frost_level"] == 1 and fx(cur(0, temperature_2m=9))["frost_level"] == 0
-assert fx(cur(73, snowfall=1, temperature_2m=-5))["frost"] is False, "frost only if nothing falls"
+# since 0.27.5 frost blends with what falls: thinner the more rain or snow (before: none at all)
+fs = fx(cur(73, snowfall=1, temperature_2m=-5))
+assert fs["frost"] is True and fs["frost_level"] == 0.5, fs
+assert fx(cur(61, rain=0.6, temperature_2m=2))["frost_level"] == 0.45 and fx(cur(65, rain=9, temperature_2m=-2))["frost"] is False
 assert fx(cur(0, temperature_2m=33))["heat"] == 0.5 and fx(cur(0, temperature_2m=45))["heat"] == 1.0
 assert fx(cur(0, temperature_2m=27))["heat"] == 0 and fx({"weather_code": 0, "is_day": 0, "temperature_2m": 33})["heat"] == 0
 assert fx(cur(63, rain=2, temperature_2m=33))["heat"] == 0, "heat only in sunshine"
+# since 0.27.5 the heat haze fades with the clouds instead of ending with the kind "partly"
+assert fx(cur(2, temperature_2m=33, cloud_cover=60))["heat"] == 0.3 and fx(cur(3, temperature_2m=33, cloud_cover=90))["heat"] == 0
+# since 0.27.5 every effect follows its reading in every kind: a shower from a bright sky falls, fog is a value of its own
+shower = fx(cur(1, rain=1.0, cloud_cover=40))
+assert shower["kind"] == "partly" and shower["rain"] == 0.25 and shower["fog"] == 0, shower
+assert fx(cur(2, snowfall=0.1))["snow"] == 0.15 and fx(cur(0))["rain"] == 0 and fx(cur(0))["snow"] == 0
+assert fx(cur(45))["fog"] == 1 and fx(cur(48, relative_humidity_2m=80))["fog"] == 1
+assert fx(cur(0, relative_humidity_2m=100))["fog"] == 0.4 and fx(cur(61, relative_humidity_2m=97.5))["fog"] == 0.2
+assert fx(cur(0, relative_humidity_2m=95))["fog"] == 0 and fx(cur(0, relative_humidity_2m="nass"))["fog"] == 0
 assert fx(cur(0, temperature_2m=float("nan")))["frost"] is False and fx(cur(0, temperature_2m="kalt"))["heat"] == 0
 print("6 weather effects: WMO code + readings -> fx (rain, snow, fog, clouds, thunderstorm with rain, storm with rain), 0..1;"
-      "hail, sleet, frost, heat")
+      "hail, sleet, frost, heat – each from its own reading, so they blend")
 
 # ------------------------------------------------------------------ Amtliche Wetterwarnungen (DWD)
 NOW = time.time()

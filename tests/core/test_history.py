@@ -89,8 +89,11 @@ with TestClient(main.app) as client:
 
     # the system load names the share of ComfyOS (since 0.20.1): CPU time of the service, its memory
     # (Linux only) and the space of its data, logs and backups – the logs just written count too
-    own = client.get("/api/system/info").json()["own"]
+    info = client.get("/api/system/info").json()
+    own = info["own"]
     assert isinstance(own["cpu"], (int, float)) and 0 <= own["cpu"] <= 100, own
+    # since 0.27.5 the bar shows the utilisation (Linux): ComfyOS's share never exceeds it
+    assert info["cpu"] is None or (0 <= info["cpu"] <= 100 and own["cpu"] <= info["cpu"]), info
     assert own["ram"] is None or own["ram"] > 0, own
     assert isinstance(own["disk"], int) and own["disk"] > 0, own
     again = client.get("/api/system/info").json()["own"]

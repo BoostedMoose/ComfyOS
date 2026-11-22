@@ -5,6 +5,7 @@ import asyncio
 import json
 import math
 import os
+import sys
 import time
 
 from fastapi import APIRouter, HTTPException, Request
@@ -67,28 +68,53 @@ async def health():
 
 # Share of ComfyOS in the load (since 0.20.1): CPU time and memory of the own process, plus the
 # disk space of the own data, logs and backups. None of it leaves the machine.
-OWN_SMOOTH = 60.0        # s – the own CPU share is smoothed like the load next to it (mean over one minute)
+OWN_SMOOTH = 60.0        # s – utilisation and own CPU share are smoothed like the load next to them (mean over one minute)
 OWN_DISK_EVERY = 60.0    # s – this often the own folders are counted anew
-_STARTED = time.monotonic()
-_own_cpu_state: dict = {"at": 0.0, "used": 0.0, "share": None}
 _own_disk_state: dict = {"at": 0.0, "bytes": None}
 
 
-def _own_cpu(cores: int) -> float:
-    """Share of ComfyOS in the computing power of all cores in per cent, smoothed over about one minute.
+def _cpu_ticks() -> tuple[int, int] | None:
+    """Busy and total ticks of all cores since boot from /proc/stat (Linux only); None if unreadable."""
+    if not sys.platform.startswith("linux"):
+        return None    # /proc only exists there
+    try:
+        with open("/proc/stat") as f:
+            parts = f.readline().split()
+        values = [int(v) for v in parts[1:9]]     # user nice system idle iowait irq softirq steal (guest is in user)
+    except (OSError, ValueError):
+        return None    # no /proc (Windows, macOS) or an unexpected line: no utilisation
+    if not parts or parts[0] != "cpu" or len(values) < 5:
+        return None
+    return sum(values) - values[3] - values[4], sum(values)
 
-    Measured is the CPU time of the own process between two queries; the first query returns the mean
-    since the start. Queries less than a second apart get the last value."""
-    now, used, state = time.monotonic(), time.process_time(), _own_cpu_state
-    if state["share"] is None:
-        state["share"] = used / max(now - _STARTED, 1.0) / cores * 100
-    elif now - state["at"] >= 1.0:
-        current = (used - state["used"]) / (now - state["at"]) / cores * 100
-        state["share"] += (1 - math.exp(-(now - state["at"]) / OWN_SMOOTH)) * (current - state["share"])
-    else:
-        return round(max(0.0, state["share"]), 1)
-    state["at"], state["used"] = now, used
-    return round(max(0.0, state["share"]), 1)
+
+# Since 0.27.5 the CPU bar shows the real utilisation (/proc/stat) instead of the load average: the load counts waiting
+# processes, not computing time – on an idle machine ComfyOS's share then filled the whole bar. Both values are taken
+# over the same intervals from a common start (import = start of the service) and smoothed alike, so ComfyOS's share
+# can never exceed the utilisation.
+_cpu_state: dict = {"at": time.monotonic(), "used": time.process_time(), "ticks": _cpu_ticks(), "share": None, "busy": None}
+
+
+def _cpu(cores: int) -> tuple[float | None, float]:
+    """Utilisation of all cores and the share of ComfyOS in it, in per cent, smoothed over about one minute.
+
+    Measured are the busy ticks of all cores (None without /proc/stat) and the CPU time of the own process between
+    two queries – the first query measures since the service started. Queries less than a second apart get the last
+    values."""
+    now, used, state = time.monotonic(), time.process_time(), _cpu_state
+    span = now - state["at"]
+    if state["share"] is None or span >= 1.0:
+        ticks, before = _cpu_ticks(), state["ticks"]
+        own = (used - state["used"]) / max(span, 0.001) / cores * 100
+        busy = (ticks[0] - before[0]) / (ticks[1] - before[1]) * 100 if ticks and before and ticks[1] > before[1] else None
+        weight = 1.0 if state["share"] is None else 1 - math.exp(-span / OWN_SMOOTH)
+        state["share"] = own if state["share"] is None else state["share"] + weight * (own - state["share"])
+        if busy is not None:
+            state["busy"] = busy if state["busy"] is None else state["busy"] + weight * (busy - state["busy"])
+        state["at"], state["used"], state["ticks"] = now, used, ticks or before
+    busy = None if state["busy"] is None else max(0.0, min(100.0, state["busy"]))
+    share = max(0.0, min(state["share"], 100.0 if busy is None else busy))
+    return (None if busy is None else round(busy, 1)), round(share, 1)
 
 
 def _own_ram() -> int | None:
@@ -135,16 +161,17 @@ async def _own_disk() -> int | None:
 
 @router.get("/api/system/info")
 async def system_info():
-    """Load of the machine for the page System: load, memory, disk space, uptime, temperature – and
-    under `own` which share ComfyOS itself has in it (cpu = per cent of all cores, ram and disk in bytes). What cannot
-    be read (e.g. on Windows) stays empty."""
+    """Load of the machine for the page System: utilisation (cpu, per cent of all cores), load, memory, disk space,
+    uptime, temperature – and under `own` which share ComfyOS itself has in it (cpu = per cent of all cores, never more
+    than the utilisation; ram and disk in bytes). What cannot be read (e.g. on Windows) stays empty."""
     import shutil, platform
     linux = platform.system() == "Linux"   # /proc and /sys only exist there (Windows: possibly shared folders of the same name)
     bad = (OSError, ValueError, IndexError, KeyError)
     cores = os.cpu_count() or 1
+    busy, own_cpu = _cpu(cores)
     info: dict = {"platform": platform.system(), "machine": platform.machine(), "cpu_count": cores,
-                  "load": None, "ram": None, "disk": None, "uptime": None, "cpu_temp": None,
-                  "own": {"cpu": _own_cpu(cores), "ram": _own_ram() if linux else None, "disk": await _own_disk()}}
+                  "cpu": busy if linux else None, "load": None, "ram": None, "disk": None, "uptime": None, "cpu_temp": None,
+                  "own": {"cpu": own_cpu, "ram": _own_ram() if linux else None, "disk": await _own_disk()}}
     if linux:
         try:
             with open("/proc/loadavg") as f:

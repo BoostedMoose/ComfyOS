@@ -505,9 +505,12 @@
       // share of ComfyOS (own): CPU time and memory of the own process, space for data, logs, backups
       const own = s.own || {}
       if (s.load != null) {
-        const lp = Math.round(s.load[0] / s.cpu_count * 100)
-        body += `<div class="sys-row"><span class="small">CPU</span><span class="small muted">${s.load[0].toFixed(2)} / ${s.cpu_count} Kerne (${lp} %)</span></div>${bar(lp, own.cpu)}`
-        if (lp > 90) alerts.push('CPU-Auslastung über 90 %')
+        // the bar shows the utilisation (since 0.27.5) – the load counts waiting processes, not computing time, and
+        // ComfyOS's share would fill it on an idle machine; without a utilisation the load stays the measure
+        const lp = Math.round(s.load[0] / s.cpu_count * 100), up = s.cpu != null ? Math.round(s.cpu) : lp
+        const text = s.cpu != null ? `${up} % · Last ${s.load[0].toFixed(2)} / ${s.cpu_count} Kerne` : `${s.load[0].toFixed(2)} / ${s.cpu_count} Kerne (${lp} %)`
+        body += `<div class="sys-row"><span class="small">CPU</span><span class="small muted">${text}</span></div>${bar(up, own.cpu)}`
+        if (up > 90) alerts.push('CPU-Auslastung über 90 %')
       }
       if (s.ram) {
         const rp = pct(s.ram.used, s.ram.total)
