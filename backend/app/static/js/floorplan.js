@@ -1649,16 +1649,17 @@
       }
       /* What the effects show inside the rooms (since 0.27, plan units): `windows` = the windows in an outer wall – a, b,
          n = unit vector into the room, room = index of the room area (as in fxMask().polys), open = share of light a
-         docked roller shutter lets through; `doors` = doors and passages between two rooms that light can pass (since
-         0.27.1) – a, b, n = unit vector into rooms[0], rooms = the two room indices; a door whose contact reports it
-         closed is left out, one without a contact counts as open (as in the heat map); `speakers` = every placed device
-         or group that plays right now – x, y, r = radius of its symbol, room, level = volume 0…1. A muted speaker sends
-         no waves; a floor below the ground has no window light. */
-      function indoorNow() {
+         docked roller shutter lets through, glow = how its light spreads through the home (lightFields); `doors` = doors
+         and passages between two rooms that light can pass (since 0.27.1) – a, b, n = unit vector into rooms[0],
+         rooms = the two room indices; a door whose contact reports it closed is left out, one without a contact counts
+         as open; `speakers` = every placed device or group that plays right now – x, y, r = radius of its symbol, room,
+         level = volume 0…1. A muted speaker sends no waves; a floor below the ground has no window light. light =
+         false: only the speakers (Basic, effects switched off) – windows and doors stay empty. */
+      function indoorNow(light) {
         const fs = faces(), db = devById(), u = 1 / st.ppu, R = clamp(st.ppu * 0.6, 8, 15) * u
         const roomOf = p => fs.findIndex(f => inside(f.poly, p))
-        const windows = [], doors = [], speakers = []
-        for (const o of underground() ? [] : st.plan.openings) {
+        const windows = [], doors = [], speakers = [], lit = light && !underground()
+        for (const o of lit ? st.plan.openings : []) {
           if (o.type !== 'door' && o.type !== 'passage') continue
           const L = dist(o.a, o.b), m = midOf(o.a, o.b)
           if (L < 0.2) continue
@@ -1668,7 +1669,7 @@
           if (rooms[0] < 0 || rooms[1] < 0 || rooms[0] === rooms[1] || (contacts.length && !contacts.some(d => d.open))) continue
           doors.push({ a: o.a, b: o.b, n, rooms })
         }
-        for (const o of underground() ? [] : st.plan.openings) {
+        for (const o of lit ? st.plan.openings : []) {
           const side = o.type === 'window' ? roomSideOf(o) : null, L = dist(o.a, o.b)
           if (!side || L < 0.2) continue
           const n = [-(o.b[1] - o.a[1]) / L * side, (o.b[0] - o.a[0]) / L * side], m = midOf(o.a, o.b)
@@ -1676,6 +1677,10 @@
           if (room < 0) continue
           const shut = dockedDevices(o, db).filter(d => d.kind === 'cover' && d.online && d.position != null).map(d => +d.position || 0)
           windows.push({ a: o.a, b: o.b, n, room, open: shut.length ? clamp(1 - Math.max.apply(null, shut) / 100, 0, 1) : 1 })
+        }
+        if (windows.length) {
+          const fields = lightFields(windows, doors, fs.map(f => f.poly))
+          windows.forEach((w, i) => { w.glow = fields[i] })
         }
         const plays = d => !!d && d.online && HO.caps.has(d, 'playing') && !!d.playing && !d.muted && (d.volume == null || d.volume > 0)
         const loud = d => d.volume == null ? 0.5 : clamp(d.volume / 60, 0.2, 1)
@@ -1691,6 +1696,95 @@
         }
         return { windows, doors, speakers }
       }
+      const LIGHT_HALF = 3.2, LIGHT_R = 13     // grid cells: half-value distance of the light and where it ends
+      let lightCache = { key: '', list: [] }
+      /* How the light of every window spreads through the home (since 0.27.1) – the way the heat map spreads warmth: on a
+         coarse grid the path from the window through the rooms is measured (Dijkstra, 8 neighbours, no diagonal through
+         wall corners); walls stop the light, the doors handed over let it through, so a bright room lights the next one
+         through its open door. Per window a small image comes out whose opacity falls off with the path – half of it
+         is left after LIGHT_HALF cells, a long soft tail runs out at LIGHT_R –, with its place in plan units:
+         {img, x, y, w, h} (null if the window lights nothing). The effects draw every image as
+         bright as its window is right now (sky, sun, shutter) – so only the plan and the doors decide about a new
+         computation, never the weather or the time. */
+      function lightFields(windows, doors, polys) {
+        const { width: W, height: H } = st.plan
+        const key = JSON.stringify([W, H, st.floorId, st.plan.walls, windows.map(w => [w.a, w.b, w.n]), doors.map(d => [d.a, d.b])])
+        if (lightCache.key === key) return lightCache.list
+        const cs = Math.max(0.2, W / 150), gw = Math.ceil(W / cs), gh = Math.ceil(H / cs), N = gw * gh, mid = i => (i + 0.5) * cs
+        // 1) blocking: outside the rooms, walls; open doors again
+        const blocked = new Uint8Array(N)
+        for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (!polys.some(poly => inside(poly, [mid(x), mid(y)]))) blocked[y * gw + x] = 1
+        // block or release all cells within distance r around a segment
+        const stamp = (a, b, r, val) => {
+          const x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - r) / cs)), x1 = Math.min(gw - 1, Math.ceil((Math.max(a[0], b[0]) + r) / cs))
+          const y0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - r) / cs)), y1 = Math.min(gh - 1, Math.ceil((Math.max(a[1], b[1]) + r) / cs))
+          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (project([mid(x), mid(y)], a, b).d < r) blocked[y * gw + x] = val
+        }
+        for (const w of st.plan.walls) { const f = flatten(w); for (let i = 0; i < f.length - 1; i++) stamp(f[i], f[i + 1], cs * 0.8, 1) }
+        for (const d of doors) stamp(d.a, d.b, cs * 1.3, 0)
+        // 2) per window: path distance from the inner side of the glass
+        const dd = new Float64Array(N), off = Math.max(0.3, cs * 1.4)
+        const list = windows.map(w => {
+          dd.fill(Infinity)
+          const heap = [], n = Math.max(2, Math.ceil(dist(w.a, w.b) / cs))
+          const push = (d, i) => { heap.push([d, i]); let c = heap.length - 1; while (c > 0) { const pa = (c - 1) >> 1; if (heap[pa][0] <= heap[c][0]) break; [heap[pa], heap[c]] = [heap[c], heap[pa]]; c = pa } }
+          // take the nearest cell off the heap
+          const pop = () => {
+            const top = heap[0], last = heap.pop()
+            if (!heap.length) return top
+            heap[0] = last
+            for (let c = 0; ;) {
+              const l = 2 * c + 1, r = l + 1
+              let m = c
+              if (l < heap.length && heap[l][0] < heap[m][0]) m = l
+              if (r < heap.length && heap[r][0] < heap[m][0]) m = r
+              if (m === c) break
+              [heap[m], heap[c]] = [heap[c], heap[m]]; c = m
+            }
+            return top
+          }
+          for (let i = 0; i <= n; i++) {
+            const t = i / n, qx = w.a[0] + (w.b[0] - w.a[0]) * t + w.n[0] * off, qy = w.a[1] + (w.b[1] - w.a[1]) * t + w.n[1] * off
+            const i0 = clamp(Math.floor(qy / cs), 0, gh - 1) * gw + clamp(Math.floor(qx / cs), 0, gw - 1)
+            if (dd[i0] !== 0) { dd[i0] = 0; push(0, i0) }
+          }
+          while (heap.length) {
+            const [d, i] = pop()
+            if (d > dd[i] || d > LIGHT_R) continue
+            const x = i % gw, y = (i / gw) | 0
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              if (!dx && !dy) continue
+              const nx = x + dx, ny = y + dy
+              if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue
+              const j = ny * gw + nx
+              if (blocked[j] || (dx && dy && (blocked[y * gw + nx] || blocked[ny * gw + x]))) continue
+              const nd = d + (dx && dy ? 1.4142 : 1) * cs
+              if (nd < dd[j]) { dd[j] = nd; push(nd, j) }
+            }
+          }
+          // 3) image of what the window reaches (scaled up softly by the effects)
+          let x0 = gw, y0 = gh, x1 = -1, y1 = -1
+          for (let i = 0; i < N; i++) {
+            if (dd[i] >= LIGHT_R) continue
+            const x = i % gw, y = (i / gw) | 0
+            x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+          }
+          if (x1 < 0) return null
+          const cv = document.createElement('canvas'), w0 = x1 - x0 + 1, h0 = y1 - y0 + 1
+          cv.width = w0; cv.height = h0
+          const ctx = cv.getContext('2d'), img = ctx.createImageData(w0, h0)
+          for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
+            const far = dd[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
+            img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
+            const end = 1 - (far / LIGHT_R) * (far / LIGHT_R)
+            img.data[at + 3] = far < LIGHT_R ? Math.round(255 * end * end / (1 + (far / LIGHT_HALF) * (far / LIGHT_HALF))) : 0
+          }
+          ctx.putImageData(img, 0, 0)
+          return { img: cv, x: x0 * cs, y: y0 * cs, w: w0 * cs, h: h0 * cs }
+        })
+        lightCache = { key, list }
+        return list
+      }
       // Effects without weather: only what happens inside (sound waves) – the weather is unknown or below the ground.
       const INDOOR_ONLY = { kind: 'none', cloud: 0, rain: 0, snow: 0, wind: 0, indoor_only: true }
       // Mount, update or remove the effect canvas – depending on whether effects should run right now. Without weather
@@ -1699,8 +1793,7 @@
       function syncFx() {
         const shown = !st.editing && faces().length > 0 && !!HO.weatherFx
         let fx = shown && !underground() ? fxNow() : null
-        st.indoor = shown ? indoorNow() : null
-        if (st.indoor && !(HO.can('floorplan_weather') && st.plan.fx !== false)) st.indoor.windows = st.indoor.doors = []   // light is Pro, sound is not
+        st.indoor = shown ? indoorNow(HO.can('floorplan_weather') && st.plan.fx !== false) : null   // light is Pro, sound is not
         renderWind(fx)
         if (!fx && st.indoor && st.indoor.speakers.length) fx = INDOOR_ONLY
         if (!fx) { if (st.fxView) { st.fxView.destroy(); st.fxView = null } return }

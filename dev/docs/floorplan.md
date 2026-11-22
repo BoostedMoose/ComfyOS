@@ -11,20 +11,25 @@ when something was added.
 - **Continuous in the cloud cover:** number and strength of the sun rays, the cloud shadows, the stars, the sunlight
   gradient and the direct light through the windows follow `fx.cloud`, no longer steps by `fx.kind` (the kind still
   decides *whether* sunlight shows: `SUNNY`). Rays fade away towards a closed cover.
-- **Window light under any sky:** the diffuse light of the sky is an image of its own (`spill()`, without an edge
-  across) laid `WINDOW_SKY` cells into the room at every window – also in rain and under 100 % clouds. The direct
-  patch gets softer with the clouds (`pane(color, soft)`, soft = 0…2: wider edges, no bar, an earlier end).
+- **Glow of the windows (indirect light, since 0.27.2 – before a directed patch at windows and doors that read as a
+  second ray):** `floorplan.js` `lightFields()` measures for every window the path through
+  the home on a coarse grid – the way the heat map spreads warmth (Dijkstra, walls stop it, the doors in
+  `indoor.doors` let it through) – and returns a small image per window (`glow: {img, x, y, w, h}` in plan units)
+  whose opacity falls off with the path (`LIGHT_HALF`, `LIGHT_R`). Cached by plan and doors, never by weather or
+  time. `drawIndoor` tints each image once and draws it as bright as its window is right now (`GLOW_SKY` × sky light
+  × shutter + `GLOW_SUN` × direct light), clipped only to the rooms as a whole: a bright room lights the next one
+  through its open door. Under any sky, also in rain and under 100 % clouds. **No ray belongs to it** – rays (the
+  patch on the floor, the shafts) exist only at windows the sun or the moon shines into and follow its position; the
+  direct patch gets softer with the clouds (`pane(color, soft)`, soft = 0…2).
 - **Roller shutters shorten the patch:** the shutter comes down from the head of the window, so the far end of the
   patch moves towards the window (`deep × open`); the brightness stays until the shutter is almost closed.
 - **Shafts of light in the room (`shafts`):** two to four of the outside's beam images per sunlit window, from the
   glass along the light to the patch, shimmering and wandering, with dust that glints. Their places come from a hash
   of the window index – nothing is stored. `beamsOf(tint)` keeps the beam images per tint for outside and inside.
-- **Light passes open doors:** `indoorNow()` also returns `doors` – doors and passages between two rooms (`n` into
-  `rooms[0]`); a door whose docked contact reports it closed is left out, one without a contact counts as open (as in
-  the heat map). Per door and direction: the brightness of the room (`bright`, from its windows) spills in as diffuse
-  light (`DOOR_REACH`), and a direct patch that travels towards the door is drawn again in the next room, clipped to
-  the door swept along the light. The wall punch would cut the threshold out again – it gets the light of both sides
-  back afterwards. One door deep, no chains. `stats.doors` counts doors that pass light.
+- **Doors:** `indoorNow()` returns `doors` – doors and passages between two rooms (`n` into `rooms[0]`); a door whose
+  docked contact reports it closed is left out, one without a contact counts as open. They open the grid of
+  `lightFields()`; the wall punch would cut the glow out at the threshold again, so it is drawn there once more.
+  `stats.doors` counts doors next to a lit room. `indoorNow(false)` (Basic, effects off) returns speakers only.
 - **Heat haze (`fx.heat`):** `hotWalls()` finds the outer room edges that face the sun (no room just beyond them, at
   least 0.9 cells long); `shimmers` are waving lines, three behind each other, that detach from such a wall, drift
   away and dissolve. Not with reduced motion. `stats.haze`; UI test: exactly in the preview `heat` by day.

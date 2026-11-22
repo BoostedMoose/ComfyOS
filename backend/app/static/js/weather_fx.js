@@ -23,19 +23,23 @@
      getSun()   = {el: degrees, dir: [x, y] direction to the sun in the plan, north: degrees,
                    moon: {el, dir, phase 0…1} or null}
      getShift() = {k, x, y} or null: how the painted plan is moved and scaled right now during a gesture
-     getIndoor() = {windows: [{a, b, n, room, open}], speakers: [{x, y, r, room, level}]} or null, in plan units:
+     getIndoor() = {windows: [{a, b, n, room, open, glow}], doors: [{a, b, n, rooms}],
+                  speakers: [{x, y, r, room, level}]} or null, in plan units:
                   a window from a to b, n = unit vector into its room, room = index into getMask().polys, open = share
-                  of light its shutter lets through; a speaker that plays at x, y with the radius r of its symbol and
-                  its volume (level 0…1)
+                  of light its shutter lets through, glow = {img, x, y, w, h}: how its light spreads through the home
+                  (opacity = share of the light that arrives, through open doors too); a door between two rooms that
+                  light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1)
    fx (from /api/weather) = {kind, cloud, rain, snow, wind, gust, wind_dir, thunder, storm, hail, frost, frost_level,
                              heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs
 
-   Inside (since 0.27): every window in an outer wall lets the sky light in by day – diffuse, under any sky. If the sun
+   Inside (since 0.27): every window in an outer wall lets the sky light in by day, under any sky: a glow that spreads
+   from the glass through the room and on through open doors, the way the heat map spreads warmth (computed by the
+   floor plan, since 0.27.1) – indirect light, no ray. If the sun
    stands on its side, a patch of light lies on the floor – close to the window and short with a high sun, deep in
    the room with a low one (WINDOW_SILL/WINDOW_HEAD: the heights of the glass) –, softer and weaker under clouds;
    shafts of light stand in the air above it, the room gets a touch brighter around it (bounce) and the window
    blooms. In a clear night the moon does the same, far weaker and by its phase. A roller shutter shortens the patch
-   from its far end and keeps the light out when closed. Light passes an open door into the next room (since 0.27.1). A speaker that plays sends rings that fade on their way; their strength follows a beat,
+   from its far end and keeps the light out when closed. Rays exist only where sun or moon shine in directly. A speaker that plays sends rings that fade on their way; their strength follows a beat,
    so they do not march evenly. Nothing of this passes a wall: every part is clipped to the room it belongs to.
 
    Margin around the house: precipitation, wind, light and stars keep a narrow margin to the wall free (MARGIN). Clouds
@@ -128,8 +132,9 @@
   // light through a window, in grid cells: the glass reaches from WINDOW_SILL to WINDOW_HEAD above the floor, the
   // patch of light ends at the latest WINDOW_REACH behind the wall; WINDOW_LIGHT = opacity of the patch in full sun
   const WINDOW_SILL = 0.35, WINDOW_HEAD = 1.9, WINDOW_REACH = 7, WINDOW_LIGHT = 0.34
-  const WINDOW_SKY = 2.8          // grid cells the diffuse light of the sky reaches into a room
-  const DOOR_REACH = 2.2          // grid cells the light of a bright room spills through an open door
+  // the glow a window spreads through the home (getIndoor: glow): opacity at the glass for the full light of the sky
+  // and what direct sun adds to it
+  const GLOW_SKY = 0.2, GLOW_SUN = 0.2
   const MOON_LIGHT = 0.3          // light of the full moon compared to the sun (what the eye makes of it, not the physics)
   const PANE_W = 64, PANE_H = 128 // size of the image of a light patch
   // sound waves: rings under way at once, seconds one travels and beat that shapes them – each from the quietest
@@ -302,22 +307,6 @@
       row.addColorStop(0, rgba(color, 0)); row.addColorStop(edge, rgba(color, along))
       row.addColorStop(0.46, rgba(color, along)); row.addColorStop(0.5, rgba(color, along * bar)); row.addColorStop(0.54, rgba(color, along))
       row.addColorStop(1 - edge, rgba(color, along)); row.addColorStop(1, rgba(color, 0))
-      g.fillStyle = row; g.fillRect(0, y, PANE_W, 2)
-    }
-    return c
-  }
-  /* Diffuse light that spills into a room – the sky through a window, a bright room through an open door: brightest at
-     the opening (top edge), fading into the room, without any edge across. Built once per colour. */
-  function spill(color) {
-    const c = document.createElement('canvas')
-    c.width = PANE_W; c.height = PANE_H
-    const g = c.getContext('2d')
-    for (let y = 0; y < PANE_H; y += 2) {
-      const v = (y + 1) / PANE_H, along = Math.min(1, v / 0.03) * Math.pow(1 - v, 1.7), narrow = 0.18 * (1 - v)
-      const row = g.createLinearGradient(0, 0, PANE_W, 0)
-      row.addColorStop(0, rgba(color, 0)); row.addColorStop(narrow + 0.02, rgba(color, 0)); row.addColorStop(0.36, rgba(color, along * 0.8))
-      row.addColorStop(0.5, rgba(color, along)); row.addColorStop(0.64, rgba(color, along * 0.8))
-      row.addColorStop(0.98 - narrow, rgba(color, 0)); row.addColorStop(1, rgba(color, 0))
       g.fillStyle = row; g.fillRect(0, y, PANE_W, 2)
     }
     return c
@@ -518,7 +507,7 @@
     let fx = null, level = 'normal', col = tokens(), W = 0, H = 0, dpr = 1
     let drops = [], ripples = [], flakes = [], pellets = [], leaves = [], wisps = [], clouds = [], banks = [], stars = [], glints = []
     let rays = [], puddles = [], cloudImg = [], cloudTint = '', fogImg = [], shimmers = []
-    const paneImg = {}                    // images of light on the floor per tint and softness (pane) and of diffuse light (spill)
+    const paneImg = {}                    // images of light on the floor per tint and softness (pane)
     const beamSets = {}                   // the light shafts in all shapes per tint (sunlight in its steps, moonlight)
     const beamsOf = tint => beamSets[tint] || (beamSets[tint] = BEAM_PROFILES.map((profile, shape) => beam(tint, shape)))
     let hot = { mask: null, key: 0, edges: [], total: 0 }   // walls that give off heat (hotWalls)
@@ -1541,12 +1530,13 @@
       if (!shown) { shown = true; setTimeout(() => { canvas.style.opacity = '' }, 30) }
     }
     /* The inside layer (since 0.27), drawn onto the main image after the building was punched out: light through the
-       windows and the sound waves of speakers (getIndoor, plan units). Every part is clipped to the room it belongs to
-       and the walls are cut out again afterwards, so nothing passes a wall; only the bloom of a sunlit window lies on
-       top of its wall. Since 0.27.1 light passes an open door (indoor.doors): the brightness of a room spills into the
-       next one, and a patch of sunlight that reaches the door continues behind it – exactly the part that fits through
-       the opening. e = what the frame already knows: day and dark (0…1), k (strength), cloud, dull (precipitation
-       or fog), sunlit, sunColor, moonlit (0…1), heat. */
+       windows and the sound waves of speakers (getIndoor, plan units). Light (since 0.27.1): every window spreads a
+       glow through the home – its image comes from the floor plan and follows the path through the rooms, so it passes
+       open doors and stops at walls; it is drawn as bright as the window is right now. Rays – the patch on the floor
+       and the shafts above it – exist only at windows the sun or the moon shines into, and they follow its position.
+       Patch, shafts and sound are clipped to their room; the walls are cut out again afterwards, only the bloom of a
+       sunlit window lies on top of its wall. e = what the frame already knows: day and dark (0…1), k (strength),
+       cloud, dull (precipitation or fog), sunlit, sunColor, moonlit (0…1), heat. */
     function drawIndoor(mask, sun, t, e) {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, v = mask.view, c = mainCtx, box = mask.box
       stats.windows = stats.beams = stats.sound = stats.doors = 0
@@ -1562,13 +1552,18 @@
         c.closePath(); c.clip()
         return true
       }
+      // the outlines of all rooms as one path
+      const allRooms = () => {
+        c.beginPath()
+        for (const poly of polys) { if (poly.length < 3) continue; c.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < poly.length; i++) c.lineTo(poly[i][0], poly[i][1]); c.closePath() }
+      }
       // a round glow that fades outwards
       const glow = (x, y, r, color, alpha) => {
         const g = c.createRadialGradient(x, y, 0, x, y, r)
         g.addColorStop(0, rgba(color, alpha)); g.addColorStop(0.5, rgba(color, alpha * 0.45)); g.addColorStop(1, rgba(color, 0))
         c.globalAlpha = 1; c.fillStyle = g; c.fillRect(x - r, y - r, 2 * r, 2 * r)
       }
-      // lay an image of light (pane, spill) onto the floor: its top edge from a to b, running along (lx, ly) – pixels
+      // lay the image of a light patch (pane) onto the floor: its top edge from a to b, running along (lx, ly) – pixels
       // per grid cell – from `near` to `near + deep` cells
       const lay = (img, a, b, lx, ly, near, deep, alpha) => {
         c.save()
@@ -1576,17 +1571,15 @@
         c.globalAlpha = alpha; c.drawImage(img, 0, 0)
         c.restore()
       }
-      // the segment a–b, longer by `more` of its length at both ends
-      const widen = (a, b, more) => [[a[0] - (b[0] - a[0]) * more, a[1] - (b[1] - a[1]) * more], [b[0] + (b[0] - a[0]) * more, b[1] + (b[1] - a[1]) * more]]
       // a fixed random number 0…1 for n – what belongs to a window keeps its place without being stored
       const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x) }
       c.save()
       c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.clip()
-      // 1) Light through the windows. Sky light by day: it spills in at every window, under any sky – diffuse, without
-      //    an edge. Direct light: the sun by day, the moon in a clear night – a patch on the floor if it stands on the
-      //    side of the window; clouds make it weaker and softer (pane with `soft`).
-      const blooms = [], lights = [], bright = {}, thresholds = []
-      let tint = e.sunColor, patchImg = null, spillImg = null
+      // 1) Light through the windows. What every window lets in: sky = the light of the sky by day, under any sky;
+      //    direct = the sun by day, the moon in a clear night, if it stands on the side of the window – weaker and
+      //    softer under clouds (pane with `soft`).
+      const blooms = [], lights = [], bright = {}
+      let tint = e.sunColor, patchImg = null
       if (!fx.indoor_only && indoor.windows.length) {
         const skylight = e.day * (e.dull ? 0.5 : 1 - 0.4 * e.cloud)
         let dir = null, el = 0, power = 0, soft = 0
@@ -1599,17 +1592,11 @@
           dir = sun.moon.dir; el = sun.moon.el; power = MOON_LIGHT * e.moonlit; tint = col.moon
         }
         if (dir) patchImg = paneImg[tint + '|' + soft] || (paneImg[tint + '|' + soft] = pane(tint, soft))
-        if (skylight > 0.02) spillImg = paneImg['spill|' + col.light] || (paneImg['spill|' + col.light] = spill(col.light))
         // by day no room is pitch dark next to the bright surroundings: a breath of light in all of them
-        if (skylight > 0.02) {
-          c.globalAlpha = 0.03 * skylight * e.k; c.fillStyle = col.light
-          c.beginPath()
-          for (const poly of polys) { if (poly.length < 3) continue; c.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < poly.length; i++) c.lineTo(poly[i][0], poly[i][1]); c.closePath() }
-          c.fill()
-        }
-        // what every window lets in: sky = diffuse light, direct = sun or moon; the patch on the floor reaches from where
-        // the light over the sill lands (near) to where the light below the head lands. A roller shutter comes down
-        // from the head: the patch gets shorter from its far end, and less sky light enters.
+        if (skylight > 0.02) { c.globalAlpha = 0.03 * skylight * e.k; c.fillStyle = col.light; allRooms(); c.fill() }
+        // The patch on the floor reaches from where the light over the sill lands (near) to where the light below the
+        // head lands. A roller shutter comes down from the head: the patch gets shorter from its far end, and less
+        // sky light enters.
         indoor.windows.forEach((w, index) => {
           const a = at(w.a), b = at(w.b), sky = skylight * w.open
           // n points into the room: light comes in if the sun (or the moon) stands on the other side of the window
@@ -1624,14 +1611,49 @@
             light.lx = -dir[0] * v.s; light.ly = -dir[1] * v.s
             stats.beams++
           } else light.direct = 0
+          // how bright the window makes the home: the light of the sky, more with direct light
+          light.level = clamp(GLOW_SKY * sky + GLOW_SUN * light.direct * (0.4 + 0.6 * w.open), 0, 0.5) * e.k
           lights.push(light)
           bright[w.room] = Math.min(1, (bright[w.room] || 0) + 0.5 * sky + 0.6 * light.direct)
           stats.windows++
         })
       }
+      // the image of a glow in the colour of the light (made once per image and colour)
+      const tinted = img => {
+        if (img.fxTint === col.light) return img.fxCopy
+        const copy = document.createElement('canvas')
+        copy.width = img.width; copy.height = img.height
+        const g = copy.getContext('2d')
+        g.drawImage(img, 0, 0)
+        g.globalCompositeOperation = 'source-in'; g.fillStyle = col.light; g.fillRect(0, 0, copy.width, copy.height)
+        img.fxTint = col.light; img.fxCopy = copy
+        return copy
+      }
+      // The glow of the windows: indirect light that spreads from the glass along the path through the rooms (the image
+      // of the floor plan). It is not clipped to one room – it passes open doors by itself – only to the rooms as a
+      // whole. A window without an image glows round into its own room.
+      const spread = () => {
+        for (const l of lights) {
+          const field = l.w.glow
+          if (l.level < 0.004) continue
+          if (field && field.img) {
+            c.globalAlpha = l.level
+            c.drawImage(tinted(field.img), v.x + field.x * v.s, v.y + field.y * v.s, field.w * v.s, field.h * v.s)
+          } else if (enter(l.w.room)) {
+            glow(l.mid[0] + l.w.n[0] * l.len * 0.1, l.mid[1] + l.w.n[1] * l.len * 0.1, l.len * 0.8 + 2.4 * v.s, col.light, l.level)
+            c.restore()
+          }
+        }
+      }
+      if (lights.length) {
+        c.save()
+        allRooms(); c.clip()
+        spread()
+        c.restore()
+      }
       // Shafts of light in the air of the room (the sun rays of the outside, continued): from the window along the light
       // to the patch on the floor, a few per window, each shimmering and wandering a little; dust glints in them.
-      const shafts = (l, share) => {
+      const shafts = l => {
         const beams = beamsOf(tint), n = clamp(Math.round(l.len / v.s * 1.5), 2, 4), angle = Math.atan2(l.ly, l.lx)
         const ux = l.b[0] - l.a[0], uy = l.b[1] - l.a[1]
         c.save()
@@ -1643,7 +1665,7 @@
           const wide = l.len * (0.2 + 0.22 * h2), long = (l.near + l.deep * (0.85 + 0.5 * h3) + 0.6) * v.s
           c.save()
           c.translate(l.a[0] + ux * pos, l.a[1] + uy * pos); c.rotate(angle + 0.05 * (h1 - 0.5))
-          c.globalAlpha = clamp(0.3 * l.direct * shine * e.k * share, 0, 0.34)
+          c.globalAlpha = clamp(0.3 * l.direct * shine * e.k, 0, 0.34)
           c.drawImage(beams[i % 3], 0, -wide / 2, long, wide)
           c.restore()
         }
@@ -1651,57 +1673,24 @@
         for (let i = 0; i < (OLD ? 2 : 4); i++) {
           const h1 = hash(l.index * 3.9 + i * 6.7 + 2), h2 = hash(l.index * 1.3 + i * 4.3 + 6), h3 = hash(l.index * 9.1 + i * 2.9 + 1)
           const u = (h1 + t * (0.012 + 0.02 * h2)) % 1, across = 0.12 + 0.76 * h3 + 0.03 * Math.sin(t * 0.4 + h1 * TAU), far = (l.near + l.deep) * u
-          c.globalAlpha = clamp(0.9 * l.direct * Math.min(1, u / 0.15) * (1 - u) * (0.5 + 0.5 * Math.sin(t * 1.7 + h2 * TAU)) * e.k * share, 0, 0.6)
+          c.globalAlpha = clamp(0.9 * l.direct * Math.min(1, u / 0.15) * (1 - u) * (0.5 + 0.5 * Math.sin(t * 1.7 + h2 * TAU)) * e.k, 0, 0.6)
           c.fillRect(l.a[0] + ux * across + l.lx * far - 0.8, l.a[1] + uy * across + l.ly * far - 0.8, 1.6, 1.6)
         }
         c.restore()
       }
-      const rooms = {}
-      for (const l of lights) (rooms[l.w.room] = rooms[l.w.room] || []).push(l)
-      for (const index of Object.keys(rooms)) {
-        if (!enter(+index)) continue
-        let brightest = 0
-        for (const l of rooms[index]) {
-          const n = l.w.n
-          if (l.sky > 0.02) {
-            const wide = widen(l.a, l.b, 0.3)
-            lay(spillImg, wide[0], wide[1], n[0] * v.s, n[1] * v.s, 0, WINDOW_SKY * (0.4 + 0.6 * l.w.open), clamp(0.4 * l.sky * e.k, 0, 0.45))
-            glow(l.mid[0] + n[0] * l.len * 0.1, l.mid[1] + n[1] * l.len * 0.1, l.len * 0.7 + 1.2 * v.s, col.light, 0.1 * l.sky * e.k)
-          }
-          if (!l.direct) continue
-          lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
-          shafts(l, 1)
-          // what the lit floor throws back into the room
-          glow(l.mid[0] + l.lx * (l.near + l.deep * 0.45), l.mid[1] + l.ly * (l.near + l.deep * 0.45), (2.2 + 0.45 * l.deep) * v.s + l.len * 0.5, tint, 0.085 * l.direct * e.k)
-          brightest = Math.max(brightest, l.direct)
-          blooms.push({ x: l.mid[0], y: l.mid[1], len: l.len, turn: Math.atan2(l.b[1] - l.a[1], l.b[0] - l.a[0]), a: l.direct * (0.4 + 0.6 * l.w.open), tint })
-        }
-        // a room with direct light is a touch brighter as a whole
-        if (brightest > 0) { c.globalAlpha = 0.04 * brightest * e.k; c.fillStyle = tint; c.fillRect(box.x, box.y, box.w, box.h) }
+      // direct light: the patch on the floor and the shafts above it, in the room of the window
+      for (const l of lights) {
+        if (!l.direct || !enter(l.w.room)) continue
+        lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
+        shafts(l)
+        // what the lit floor throws back into the room
+        glow(l.mid[0] + l.lx * (l.near + l.deep * 0.45), l.mid[1] + l.ly * (l.near + l.deep * 0.45), (2.2 + 0.45 * l.deep) * v.s + l.len * 0.5, tint, 0.085 * l.direct * e.k)
+        blooms.push({ x: l.mid[0], y: l.mid[1], len: l.len, turn: Math.atan2(l.b[1] - l.a[1], l.b[0] - l.a[0]), a: l.direct * (0.4 + 0.6 * l.w.open), tint })
         c.restore()
       }
-      // 1b) Open doors: both ways – the brightness of the room behind the door spills in (diffuse), and direct light
-      //     that travels towards the door continues behind it, clipped to the door swept along the light.
-      for (const d of lights.length ? indoor.doors || [] : []) {
-        const a = at(d.a), b = at(d.b), wide = widen(a, b, 0.25), th = { a, b, n: d.n, level: 0, beams: [] }
-        for (const way of [0, 1]) {
-          const from = d.rooms[way], n = way ? d.n : [-d.n[0], -d.n[1]], level = bright[from] || 0     // n points into the room the light enters
-          const beams = (rooms[from] || []).filter(l => l.direct && l.lx * n[0] + l.ly * n[1] > 0)
-          if ((level <= 0.03 && !beams.length) || !enter(d.rooms[1 - way])) continue
-          if (level > 0.03) lay(spillImg || (spillImg = paneImg['spill|' + col.light] || (paneImg['spill|' + col.light] = spill(col.light))), wide[0], wide[1], n[0] * v.s, n[1] * v.s, 0, DOOR_REACH, clamp(0.3 * level * e.k, 0, 0.3))
-          for (const l of beams) {
-            const reach = l.near + l.deep + 1
-            c.save()
-            c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(b[0] + l.lx * reach, b[1] + l.ly * reach); c.lineTo(a[0] + l.lx * reach, a[1] + l.ly * reach)
-            c.closePath(); c.clip()
-            lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
-            c.restore()
-          }
-          c.restore()
-          th.level = Math.max(th.level, level); th.beams = th.beams.concat(beams)
-        }
-        if (th.level > 0.03 || th.beams.length) { thresholds.push(th); stats.doors++ }
-      }
+      // doors the glow passes: one of their rooms is lit by a window
+      const passed = lights.length ? (indoor.doors || []).filter(d => (bright[d.rooms[0]] || 0) > 0.03 || (bright[d.rooms[1]] || 0) > 0.03) : []
+      stats.doors = passed.length
       // 2) Sound: rings spread from every speaker that plays and fade on their way. How strong a ring is was decided by
       //    the beat at the moment it left the speaker – so the rings differ and the speaker itself pulses with it. A
       //    quiet speaker sends few, small, slow rings; a loud one more and further – calm in both cases (since 0.27.1).
@@ -1730,14 +1719,13 @@
       for (const p of mask.walls || []) { if (p.length < 2) continue; c.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) c.lineTo(p[i][0], p[i][1]) }
       c.stroke()
       c.globalCompositeOperation = 'source-over'
-      // … except in an open door that light passes: its threshold gets the light of both sides back
-      for (const th of thresholds) {
-        const nx = th.n[0] * (wall / 2 + 0.5), ny = th.n[1] * (wall / 2 + 0.5)
+      // … except in an open door the glow passes: its threshold gets the glow back
+      for (const d of passed) {
+        const a = at(d.a), b = at(d.b), nx = d.n[0] * (wall / 2 + 0.5), ny = d.n[1] * (wall / 2 + 0.5)
         c.save()
-        c.beginPath(); c.moveTo(th.a[0] + nx, th.a[1] + ny); c.lineTo(th.b[0] + nx, th.b[1] + ny); c.lineTo(th.b[0] - nx, th.b[1] - ny); c.lineTo(th.a[0] - nx, th.a[1] - ny)
+        c.beginPath(); c.moveTo(a[0] + nx, a[1] + ny); c.lineTo(b[0] + nx, b[1] + ny); c.lineTo(b[0] - nx, b[1] - ny); c.lineTo(a[0] - nx, a[1] - ny)
         c.closePath(); c.clip()
-        if (th.level > 0.03) { c.globalAlpha = clamp(0.22 * th.level * e.k, 0, 0.25); c.fillStyle = col.light; c.fillRect(box.x, box.y, box.w, box.h) }
-        for (const l of th.beams) lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
+        spread()
         c.restore()
       }
       // 3) Bloom: a window with direct light glows itself – a flat halo along the glass, on top of the wall
