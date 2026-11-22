@@ -103,7 +103,7 @@ PIXELS_JS = """() => {
   const s = HO.weatherFx.stats, wind = document.querySelector('#fpHost .fp-wind:not(.hidden)')
   return { inside, drawn, frames: s.frames, wisps: s.wisps, cells: s.cells, solid: s.solid, leaves: s.leaves, puddles: s.puddles,
     ripples: s.ripples, rays: s.rays, blocked: s.blocked, frost: s.frost, windows: s.windows, beams: s.beams, moon: s.moon,
-    sound: s.sound, wind: wind ? wind.getAttribute('title') : null }
+    sound: s.sound, haze: s.haze, wind: wind ? wind.getAttribute('title') : null }
 }"""
 # previews with wind from 15 km/h and without snow: leaves drift there; previews with rain: puddles and ripples
 LEAFY = {"partly", "rain", "breeze", "storm", "thunder", "hail"}
@@ -264,6 +264,10 @@ def run(p, engine, name, reduced=False, **ctx_args):
                 problems.append(f"{name}: {kind}/{tm}: sun rays or their shadow shaft missing (rays {px['rays']}, blocked {px['blocked']})")
             if tm == "night" and px["rays"]:
                 problems.append(f"{name}: {kind}/{tm}: sun rays at night ({px['rays']})")
+            # since 0.27.1: in the heat of the day the walls in the sun give their heat off (wavy lines; they only exist
+            # moving, so not with reduced motion) – and only then
+            if bool(px["haze"]) != (kind == "heat" and tm == "day" and not reduced):
+                problems.append(f"{name}: {kind}/{tm}: heat haze wrong ({px['haze']})")
             if name == "desktop" or (kind, tm) in (("rain", "day"), ("clear", "night")):
                 page.locator("#fpHost").screenshot(path=str(SHOTS / f"weather-{name}-{kind}-{tm}.png"))
         # shadow: the cast shadow by day, a soft halo around the building at night

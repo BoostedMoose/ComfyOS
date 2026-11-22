@@ -1649,13 +1649,25 @@
       }
       /* What the effects show inside the rooms (since 0.27, plan units): `windows` = the windows in an outer wall – a, b,
          n = unit vector into the room, room = index of the room area (as in fxMask().polys), open = share of light a
-         docked roller shutter lets through; `speakers` = every placed device or group that plays right now – x, y,
-         r = radius of its symbol, room, level = volume 0…1. A muted speaker sends no waves; a floor below the ground
-         has no window light. */
+         docked roller shutter lets through; `doors` = doors and passages between two rooms that light can pass (since
+         0.27.1) – a, b, n = unit vector into rooms[0], rooms = the two room indices; a door whose contact reports it
+         closed is left out, one without a contact counts as open (as in the heat map); `speakers` = every placed device
+         or group that plays right now – x, y, r = radius of its symbol, room, level = volume 0…1. A muted speaker sends
+         no waves; a floor below the ground has no window light. */
       function indoorNow() {
         const fs = faces(), db = devById(), u = 1 / st.ppu, R = clamp(st.ppu * 0.6, 8, 15) * u
         const roomOf = p => fs.findIndex(f => inside(f.poly, p))
-        const windows = [], speakers = []
+        const windows = [], doors = [], speakers = []
+        for (const o of underground() ? [] : st.plan.openings) {
+          if (o.type !== 'door' && o.type !== 'passage') continue
+          const L = dist(o.a, o.b), m = midOf(o.a, o.b)
+          if (L < 0.2) continue
+          const n = [-(o.b[1] - o.a[1]) / L, (o.b[0] - o.a[0]) / L]
+          const rooms = [roomOf([m[0] + n[0] * 0.4, m[1] + n[1] * 0.4]), roomOf([m[0] - n[0] * 0.4, m[1] - n[1] * 0.4])]
+          const contacts = dockedDevices(o, db).filter(d => isContact(d) && d.online)
+          if (rooms[0] < 0 || rooms[1] < 0 || rooms[0] === rooms[1] || (contacts.length && !contacts.some(d => d.open))) continue
+          doors.push({ a: o.a, b: o.b, n, rooms })
+        }
         for (const o of underground() ? [] : st.plan.openings) {
           const side = o.type === 'window' ? roomSideOf(o) : null, L = dist(o.a, o.b)
           if (!side || L < 0.2) continue
@@ -1677,7 +1689,7 @@
           const playing = g.members.map(id => db[id]).filter(plays), room = roomOf([g.x, g.y])
           if (playing.length && room >= 0) speakers.push({ x: g.x, y: g.y, r: R * GROUP_SCALE, room, level: Math.max.apply(null, playing.map(loud)) })
         }
-        return { windows, speakers }
+        return { windows, doors, speakers }
       }
       // Effects without weather: only what happens inside (sound waves) – the weather is unknown or below the ground.
       const INDOOR_ONLY = { kind: 'none', cloud: 0, rain: 0, snow: 0, wind: 0, indoor_only: true }
@@ -1688,7 +1700,7 @@
         const shown = !st.editing && faces().length > 0 && !!HO.weatherFx
         let fx = shown && !underground() ? fxNow() : null
         st.indoor = shown ? indoorNow() : null
-        if (st.indoor && !(HO.can('floorplan_weather') && st.plan.fx !== false)) st.indoor.windows = []   // light is Pro, sound is not
+        if (st.indoor && !(HO.can('floorplan_weather') && st.plan.fx !== false)) st.indoor.windows = st.indoor.doors = []   // light is Pro, sound is not
         renderWind(fx)
         if (!fx && st.indoor && st.indoor.speakers.length) fx = INDOOR_ONLY
         if (!fx) { if (st.fxView) { st.fxView.destroy(); st.fxView = null } return }

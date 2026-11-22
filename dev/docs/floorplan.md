@@ -4,6 +4,49 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.27.1 – light through doors, shafts in the window light, heat haze, worn ice, mirroring puddles
+
+- **Less colour in the sunlight:** `sunColor` mixes only 5 % (noon) to 35 % (sun at the horizon) of `--fx-sun` into
+  `--fx-light` (before 20–65 %) – almost white by day, a little warm in the morning and evening.
+- **Continuous in the cloud cover:** number and strength of the sun rays, the cloud shadows, the stars, the sunlight
+  gradient and the direct light through the windows follow `fx.cloud`, no longer steps by `fx.kind` (the kind still
+  decides *whether* sunlight shows: `SUNNY`). Rays fade away towards a closed cover.
+- **Window light under any sky:** the diffuse light of the sky is an image of its own (`spill()`, without an edge
+  across) laid `WINDOW_SKY` cells into the room at every window – also in rain and under 100 % clouds. The direct
+  patch gets softer with the clouds (`pane(color, soft)`, soft = 0…2: wider edges, no bar, an earlier end).
+- **Roller shutters shorten the patch:** the shutter comes down from the head of the window, so the far end of the
+  patch moves towards the window (`deep × open`); the brightness stays until the shutter is almost closed.
+- **Shafts of light in the room (`shafts`):** two to four of the outside's beam images per sunlit window, from the
+  glass along the light to the patch, shimmering and wandering, with dust that glints. Their places come from a hash
+  of the window index – nothing is stored. `beamsOf(tint)` keeps the beam images per tint for outside and inside.
+- **Light passes open doors:** `indoorNow()` also returns `doors` – doors and passages between two rooms (`n` into
+  `rooms[0]`); a door whose docked contact reports it closed is left out, one without a contact counts as open (as in
+  the heat map). Per door and direction: the brightness of the room (`bright`, from its windows) spills in as diffuse
+  light (`DOOR_REACH`), and a direct patch that travels towards the door is drawn again in the next room, clipped to
+  the door swept along the light. The wall punch would cut the threshold out again – it gets the light of both sides
+  back afterwards. One door deep, no chains. `stats.doors` counts doors that pass light.
+- **Heat haze (`fx.heat`):** `hotWalls()` finds the outer room edges that face the sun (no room just beyond them, at
+  least 0.9 cells long); `shimmers` are waving lines, three behind each other, that detach from such a wall, drift
+  away and dissolve. Not with reduced motion. `stats.haze`; UI test: exactly in the preview `heat` by day.
+- **Hoarfrost reworked (`rime()`):** no ornament any more but worn ice – per pixel a cloudy layer from value noise
+  (`lattice()`), thinning out softly towards an irregular outline, on it bundles of scratches, splats, speckle, a few
+  scratches that take ice away. Patches are large, turned at random and overlap into one sheet, thinner on the sunny
+  side of the house than in its shadow.
+- **Both stay in the background:** `FROST_ALPHA` and `PUDDLE_ALPHA` are the opacity of the frost patches and of the
+  puddles with everything in them (water, mirror, waves, glints) – the floor plan is the subject, the effects only
+  accompany it.
+- **Puddles:** never overlap (`groundSpots` option `apart`). The water mirrors the sky: `mirror()` is a seamless tile
+  of clouds, filled into every puddle as a pattern (clipped to `outline`) that drifts with the wind (`mirrorPan`);
+  lightning brightens it (`flashNow`). A drop that lands in a puddle (`land`) adds a wave to it (`p.waves`, in radii
+  of the puddle): in its ring the mirror image is dimmed and laid in again displaced, a dark trough in front of a
+  bright crest. The glints (`gloss`) are drawn in strips of whole pixels that swing against each other.
+- **Sound waves calmer:** rings, period, beat and reach go from the quietest to the loudest speaker (`SOUND_RINGS`,
+  `SOUND_PERIOD`, `SOUND_BPM`, `SOUND_REACH` as pairs): few, small, slow rings when quiet, more and further when loud,
+  slower than before in both cases. Speakers of different volume no longer pulse in step.
+- **Effect lab:** the weather is always made from the sliders; a preset only sets them and the kind is derived as the
+  backend derives it (`kindOf` in `dev/fxlab/lab.js`, new flag "Nebel"). "Eigene Mischung" shows when a slider left
+  the preset.
+
 ## Since 0.27 – light through the windows, sound waves, moon, frost flowers, mirroring puddles, effect lab
 
 - **The inside layer (`weather_fx.js`, `drawIndoor`):** the weather still never gets inside – rooms and walls are punched

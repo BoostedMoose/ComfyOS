@@ -30,11 +30,12 @@
    fx (from /api/weather) = {kind, cloud, rain, snow, wind, gust, wind_dir, thunder, storm, hail, frost, frost_level,
                              heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs
 
-   Inside (since 0.27): every window in an outer wall lets the sky light in by day (a soft glow). If the sun stands on
-   its side, a patch of light lies on the floor – close to the window and short with a high sun, deep in the room with
-   a low one (WINDOW_SILL/WINDOW_HEAD: the heights of the glass) –, the room gets a touch brighter around it (bounce)
-   and the window blooms. In a clear night the moon does the same, far weaker and by its phase. A closed roller
-   shutter keeps the light out. A speaker that plays sends rings that fade on their way; their strength follows a beat,
+   Inside (since 0.27): every window in an outer wall lets the sky light in by day – diffuse, under any sky. If the sun
+   stands on its side, a patch of light lies on the floor – close to the window and short with a high sun, deep in
+   the room with a low one (WINDOW_SILL/WINDOW_HEAD: the heights of the glass) –, softer and weaker under clouds;
+   shafts of light stand in the air above it, the room gets a touch brighter around it (bounce) and the window
+   blooms. In a clear night the moon does the same, far weaker and by its phase. A roller shutter shortens the patch
+   from its far end and keeps the light out when closed. Light passes an open door into the next room (since 0.27.1). A speaker that plays sends rings that fade on their way; their strength follows a beat,
    so they do not march evenly. Nothing of this passes a wall: every part is clipped to the room it belongs to.
 
    Margin around the house: precipitation, wind, light and stars keep a narrow margin to the wall free (MARGIN). Clouds
@@ -57,7 +58,9 @@
 
    Daylight (since 0.26.1): by day the whole surroundings are evenly brighter (sky light, dimmer under clouds and in
    precipitation) – no corner stays dark. The sunlight on top of it is a gentle gradient from the sunny side that never
-   runs out to nothing, in a warm tint (--fx-sun, warmer the lower the sun stands).
+   runs out to nothing – almost white at noon, a little warm with a low sun (--fx-sun mixed in, since 0.27.1 far less).
+   How much of clouds, rays, stars and sunlight there is follows the cloud cover itself (fx.cloud), not the weather
+   kind – nothing jumps between two kinds (since 0.27.1).
 
    Sun rays (since 0.25, reworked in 0.26.1 and 0.27): shafts of light of different shapes (broad, split into
    filaments, fine, widening) and very different lengths, each with its own life – it reaches out while it fades in,
@@ -67,14 +70,19 @@
    with the haze (RAY_HAZE). The building throws a shadow shaft into them (shadeRays): a ray that hits the house
    does not continue behind it.
 
-   Hoarfrost (frost, since 0.26.1; from 4 °C and reworked in 0.27): an icy veil, patches of frost flowers – six ferns
-   around one point, each with side branches at 60° – and fine needles lying fixed on the ground (like the puddles,
-   never in the house, but on balconies), and crystals that glint as small four-pointed stars – more in sunlight.
+   Hoarfrost (frost, since 0.26.1; from 4 °C since 0.27, reworked in 0.27.1): an icy veil and large soft patches of
+   worn ice that grow into one sheet – cloudy, with bundles of fine scratches, splats and a speckle of crystals –
+   lying fixed on the ground (like the puddles, never in the house, but on balconies), subtle, thinner on the sunny
+   side of the house than in its shadow; and crystals that glint as small four-pointed stars – more in sunlight.
    fx.frost_level (0…1) thins it out in mild cold.
 
-   Puddles (reworked in 0.27): irregular with small pools beside them; wet ground is darker than dry, and the water
-   mirrors the sky – a faint sheen, a few narrow bright streaks in one direction for every puddle and a fine line
-   along its edge; brighter by day.
+   Puddles (reworked in 0.27 and 0.27.1): irregular with small pools beside them, never running into each other; wet
+   ground is darker than dry, and the water mirrors the sky – clouds that drift through it with the wind, a few
+   glints and a fine line along its edge; brighter by day, bright for a moment in lightning. A drop that lands in a
+   puddle sends a wave across it that displaces the mirror image.
+
+   Heat (fx.heat, since 0.27.1): the walls in the sun give their heat off – gently waving lines detach from them,
+   drift away and dissolve (hotWalls).
 
    Performance: at most 30 frames/s, calm images (only clouds, fog, stars, hoarfrost, sun rays) 12 frames/s,
    devicePixelRatio ≤ 2, particles by area; if a device cannot keep up, the view regulates itself down (STEPS: first
@@ -113,13 +121,20 @@
   const RAY_SIDE_MIN = 0.35       // sun rays always wander at least this share of the cloud pace across the light
   const RAY_HAZE = 0.3            // on a clear day they wander only with the haze: this share of the cloud pace
   const FROST_UNIT = 0.36         // in the hoarfrost image the radius 1 corresponds to this share of the image edge
+  // opacity of the hoarfrost patches and of the puddles with all that happens in them: both only accompany the floor
+  // plan, they never draw the eye away from it (since 0.27.1)
+  const FROST_ALPHA = 0.26, PUDDLE_ALPHA = 0.6
   const RAY_FAN = 0.07            // the sun rays fan out: turn (radians) of a ray at the edge of the frame against the light
   // light through a window, in grid cells: the glass reaches from WINDOW_SILL to WINDOW_HEAD above the floor, the
   // patch of light ends at the latest WINDOW_REACH behind the wall; WINDOW_LIGHT = opacity of the patch in full sun
   const WINDOW_SILL = 0.35, WINDOW_HEAD = 1.9, WINDOW_REACH = 7, WINDOW_LIGHT = 0.34
+  const WINDOW_SKY = 2.8          // grid cells the diffuse light of the sky reaches into a room
+  const DOOR_REACH = 2.2          // grid cells the light of a bright room spills through an open door
   const MOON_LIGHT = 0.3          // light of the full moon compared to the sun (what the eye makes of it, not the physics)
   const PANE_W = 64, PANE_H = 128 // size of the image of a light patch
-  const SOUND_RINGS = 5, SOUND_PERIOD = 2.9, SOUND_BPM = 112   // rings of a speaker, seconds one travels, beat that shapes them
+  // sound waves: rings under way at once, seconds one travels and beat that shapes them – each from the quietest
+  // to the loudest speaker; grid cells a ring travels
+  const SOUND_RINGS = [3, 4], SOUND_PERIOD = [5.6, 4], SOUND_BPM = [52, 76], SOUND_REACH = [0.9, 3.8]
   const EDDY_MIN = 0.15           // Wirbel im Windschatten ab ~12 km/h, voll ab ~50 km/h
   const FLOW_CELLS = OLD ? 1400 : 2800   // flow grid: at most this many cells
   const TRAIL = OLD ? 8 : 12      // points in the tail of a wind line
@@ -136,9 +151,10 @@
   // puddles, ripples in the last frame; rays = sum of the brightness of the sun rays visible right now,
   // blocked = parts of the building that throw a shadow shaft into them, frost = hoarfrost patches in the last frame
   // windows = windows that let light in (sky, sun or moon), beams = of them with a patch of sun- or moonlight,
-  // moon = strength of the moonlight (0…1), sound = speakers that send waves
+  // moon = strength of the moonlight (0…1), sound = speakers that send waves, doors = doors light passes through,
+  // haze = lines of heat that rise from the walls in the sun
   const stats = { frames: 0, wisps: 0, cells: 0, solid: 0, builds: 0, step: 0, leaves: 0, puddles: 0, ripples: 0, rays: 0,
-    blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0 }
+    blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0, doors: 0, haze: 0 }
   const rnd = (a, b) => a + Math.random() * (b - a)
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
@@ -273,92 +289,159 @@
   }
   /* Patch of light a window throws onto the floor: the window is at the top edge, the light runs downwards. Across it
      has soft edges and the shadow of the bar in the middle of the window; both get softer the further the light has
-     travelled, and towards its end the patch fades. Built once per tint, stretched onto the floor by a transform. */
-  function pane(color) {
+     travelled, and towards its end the patch fades. soft = 0…2: how much clouds scatter the light – wider edges, no
+     bar, an earlier end. Built once per tint and softness, stretched onto the floor by a transform. */
+  function pane(color, soft) {
     const c = document.createElement('canvas')
     c.width = PANE_W; c.height = PANE_H
     const g = c.getContext('2d')
     for (let y = 0; y < PANE_H; y += 2) {
-      const v = (y + 1) / PANE_H, along = Math.min(1, v / 0.05) * Math.pow(1 - v, 0.75), soft = 0.03 + 0.17 * v
+      const v = (y + 1) / PANE_H, along = Math.min(1, v / (0.05 + 0.05 * soft)) * Math.pow(1 - v, 0.75 + 0.45 * soft)
+      const edge = Math.min(0.42, (0.03 + 0.17 * v) * (1 + 1.5 * soft)), bar = 1 - (0.6 - 0.5 * v) * (1 - soft / 2)
       const row = g.createLinearGradient(0, 0, PANE_W, 0)
-      row.addColorStop(0, rgba(color, 0)); row.addColorStop(soft, rgba(color, along))
-      row.addColorStop(0.46, rgba(color, along)); row.addColorStop(0.5, rgba(color, along * (0.4 + 0.5 * v))); row.addColorStop(0.54, rgba(color, along))
-      row.addColorStop(1 - soft, rgba(color, along)); row.addColorStop(1, rgba(color, 0))
+      row.addColorStop(0, rgba(color, 0)); row.addColorStop(edge, rgba(color, along))
+      row.addColorStop(0.46, rgba(color, along)); row.addColorStop(0.5, rgba(color, along * bar)); row.addColorStop(0.54, rgba(color, along))
+      row.addColorStop(1 - edge, rgba(color, along)); row.addColorStop(1, rgba(color, 0))
       g.fillStyle = row; g.fillRect(0, y, PANE_W, 2)
     }
     return c
   }
-  /* Hoarfrost patch: frost flowers – six ferns around one point, each a stem with side branches at 60° that get shorter
-     towards its tip and branch once more –, around them small ice stars and fine needles in the six directions of the
-     ice crystal, densest in the middle of a few soft lobes and thinning out towards an irregular edge; below them a
-     faint white haze. Built once, after that only drawImage. */
-  function rime(color) {
-    const size = 256, c = document.createElement('canvas')
-    c.width = c.height = size
-    const g = c.getContext('2d'), mid = size / 2, R = size * FROST_UNIT, SIXTH = Math.PI / 3
-    const lobes = [{ x: 0, y: 0, r: 1 }]
-    for (let i = Math.floor(rnd(2, 4)); i > 0; i--) {
-      const a = rnd(0, TAU), d = rnd(0.3, 0.65)
-      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d, r: rnd(0.4, 0.7) })
-    }
-    // how dense the frost is at a point (in units of the radius): 1 in the middle of a lobe, fading outwards
-    const density = (x, y) => {
-      let most = 0
-      for (const l of lobes) {
-        const dx = x - l.x, dy = y - l.y
-        most = Math.max(most, Math.exp(-2.2 * (dx * dx + dy * dy) / (l.r * l.r)))
-      }
-      return most
-    }
-    for (const l of lobes) {
-      const x = mid + l.x * R, y = mid + l.y * R, r = l.r * R * 1.15, haze = g.createRadialGradient(x, y, 0, x, y, r)
-      haze.addColorStop(0, rgba(color, 0.09)); haze.addColorStop(0.6, rgba(color, 0.035)); haze.addColorStop(1, rgba(color, 0))
-      g.fillStyle = haze; g.fillRect(x - r, y - r, r * 2, r * 2)
-    }
-    g.strokeStyle = color; g.lineCap = 'round'
-    // one fern: a stem from x, y in direction a; depth = how often its branches branch again. The image is drawn far
-    // smaller than it is built – the lines are bold, so the structure survives.
-    const fern = (x, y, a, len, depth, alpha) => {
-      const cx = Math.cos(a), cy = Math.sin(a)
-      g.globalAlpha = alpha; g.lineWidth = depth > 1 ? 2.3 : depth ? 1.6 : 1.1
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x + cx * len, y + cy * len); g.stroke()
-      if (!depth || len < 6) return
-      const twigs = Math.max(2, Math.round(len / 11))
-      for (let i = 1; i <= twigs; i++) {
-        const p = i / (twigs + 1), twig = len * 0.46 * (1 - 0.65 * p)
-        for (const side of [-1, 1]) fern(x + cx * len * p, y + cy * len * p, a + side * SIXTH, twig, depth - 1, alpha * 0.85)
-      }
-    }
-    // a frost flower in the middle of every lobe, turned at random; the arms differ a little in length
-    for (const l of lobes) {
-      const turn = rnd(0, SIXTH), len = l.r * R * rnd(0.6, 0.85)
-      for (let arm = 0; arm < 6; arm++) fern(mid + l.x * R, mid + l.y * R, turn + arm * SIXTH + rnd(-0.04, 0.04), len * rnd(0.7, 1), 2, 0.8)
-    }
-    // small ice stars where the frost is dense
-    for (let i = 0; i < 34; i++) {
-      const u = rnd(-1.2, 1.2), v = rnd(-1.2, 1.2), d = density(u, v)
-      if (Math.random() > d * 0.6) continue
-      const turn = rnd(0, SIXTH), len = rnd(6, 14) * (0.6 + 0.4 * d)
-      for (let arm = 0; arm < 6; arm++) fern(mid + u * R, mid + v * R, turn + arm * SIXTH, len, len > 10 ? 1 : 0, 0.4 + 0.3 * d)
-    }
-    // fine needles between them
-    for (let i = 0; i < 170; i++) {
-      const u = rnd(-1.3, 1.3), v = rnd(-1.3, 1.3), d = density(u, v)
-      if (Math.random() > d) continue
-      const x = mid + u * R, y = mid + v * R, a = Math.floor(rnd(0, 6)) * SIXTH + rnd(-0.12, 0.12)
-      const len = rnd(4, 9) * (0.6 + 0.4 * d), cx = Math.cos(a), cy = Math.sin(a)
-      g.globalAlpha = rnd(0.25, 0.6) * (0.5 + 0.5 * d); g.lineWidth = rnd(0.9, 1.4)
-      g.beginPath(); g.moveTo(x - cx * len / 2, y - cy * len / 2); g.lineTo(x + cx * len / 2, y + cy * len / 2); g.stroke()
+  /* Diffuse light that spills into a room – the sky through a window, a bright room through an open door: brightest at
+     the opening (top edge), fading into the room, without any edge across. Built once per colour. */
+  function spill(color) {
+    const c = document.createElement('canvas')
+    c.width = PANE_W; c.height = PANE_H
+    const g = c.getContext('2d')
+    for (let y = 0; y < PANE_H; y += 2) {
+      const v = (y + 1) / PANE_H, along = Math.min(1, v / 0.03) * Math.pow(1 - v, 1.7), narrow = 0.18 * (1 - v)
+      const row = g.createLinearGradient(0, 0, PANE_W, 0)
+      row.addColorStop(0, rgba(color, 0)); row.addColorStop(narrow + 0.02, rgba(color, 0)); row.addColorStop(0.36, rgba(color, along * 0.8))
+      row.addColorStop(0.5, rgba(color, along)); row.addColorStop(0.64, rgba(color, along * 0.8))
+      row.addColorStop(0.98 - narrow, rgba(color, 0)); row.addColorStop(1, rgba(color, 0))
+      g.fillStyle = row; g.fillRect(0, y, PANE_W, 2)
     }
     return c
   }
+  // Value noise: a lattice of n × n random values, read smoothly at u, v (0…1); tile = the right edge continues at
+  // the left one and the bottom edge at the top one (for a pattern that repeats without a seam).
+  function lattice(n, tile) {
+    const side = n + 1, cells = new Float32Array(side * side)
+    for (let i = 0; i < cells.length; i++) cells[i] = Math.random()
+    if (tile) for (let i = 0; i <= n; i++) { cells[i * side + n] = cells[i * side]; cells[n * side + i] = cells[i] }
+    return (u, v) => {
+      const x = clamp(u, 0, 0.9999) * n, y = clamp(v, 0, 0.9999) * n, i = x | 0, j = y | 0, at = j * side + i
+      let ax = x - i, ay = y - j
+      ax = ax * ax * (3 - 2 * ax); ay = ay * ay * (3 - 2 * ay)
+      return (cells[at] * (1 - ax) + cells[at + 1] * ax) * (1 - ay) + (cells[at + side] * (1 - ax) + cells[at + side + 1] * ax) * ay
+    }
+  }
+  /* Hoarfrost patch (reworked in 0.27.1): a worn sheet of ice, not an ornament. A cloudy layer from several octaves of
+     noise – dense in places, thin in others, with blots that have a sharper edge –, thinning out softly towards an
+     irregular outline, so that patches lying over each other grow into one sheet; on it
+     bundles of fine scratches that run almost parallel and a few that cross them, splats with droplets flung to one
+     side and a speckle of tiny crystals; some scratches take the ice away again. Built once, after that only drawImage
+     (turned differently for every patch). */
+  function rime(color) {
+    const size = 256, mid = size / 2, R = size * FROST_UNIT
+    const sheet = () => { const c = document.createElement('canvas'); c.width = c.height = size; return c }
+    const lobes = [{ x: 0, y: 0, r: 0.85 }]
+    for (let i = Math.floor(rnd(3, 6)); i > 0; i--) {
+      const a = rnd(0, TAU), d = rnd(0.35, 0.8)
+      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d, r: rnd(0.35, 0.7) })
+    }
+    const cloudy = [lattice(4), lattice(9), lattice(19), lattice(41)], stain = lattice(7), torn = lattice(11), grain = lattice(96)
+    const tone = rgb(color).split(',').map(Number)
+    const step = (lo, hi, v) => { const q = clamp((v - lo) / (hi - lo), 0, 1); return q * q * (3 - 2 * q) }
+    // 1) the layer of ice and the outline of the patch (mask), pixel by pixel
+    const ice = sheet(), g = ice.getContext('2d'), mask = sheet(), m = mask.getContext('2d')
+    const pixels = g.createImageData(size, size), edge = m.createImageData(size, size)
+    for (let y = 0, i = 0; y < size; y++) {
+      for (let x = 0; x < size; x++, i += 4) {
+        const u = x / size, v = y / size, px = (x - mid) / R, py = (y - mid) / R
+        let dense = 0
+        for (const l of lobes) { const dx = px - l.x, dy = py - l.y; dense = Math.max(dense, Math.exp(-1.6 * (dx * dx + dy * dy) / (l.r * l.r))) }
+        const inside = step(0.03, 0.72, dense + (torn(u, v) - 0.5) * 0.3 + (cloudy[1](u, v) - 0.5) * 0.12) * step(0, 0.1, Math.min(u, 1 - u, v, 1 - v))
+        const fog = 0.55 * cloudy[0](u, v) + 0.27 * cloudy[1](u, v) + 0.12 * cloudy[2](u, v) + 0.06 * cloudy[3](u, v)
+        const blot = step(0.48, 0.6, stain(u, v) * 0.7 + cloudy[2](u, v) * 0.3)
+        const a = 0.15 + 0.32 * step(0.3, 0.8, fog) + 0.08 * blot + 0.1 * (grain(u, v) - 0.5)
+        for (let ch = 0; ch < 3; ch++) pixels.data[i + ch] = edge.data[i + ch] = tone[ch]
+        pixels.data[i + 3] = 255 * clamp(a, 0, 1) * inside
+        edge.data[i + 3] = 255 * inside
+      }
+    }
+    g.putImageData(pixels, 0, 0); m.putImageData(edge, 0, 0)
+    // 2) what lies on the ice: scratches, splats, speckle – cut to the outline of the patch
+    const marks = sheet(), k = marks.getContext('2d')
+    k.strokeStyle = k.fillStyle = color; k.lineCap = 'round'
+    // a scratch through x, y in direction a, slightly bent
+    const scratch = (c, x, y, a, len) => {
+      const dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2, bend = rnd(-0.06, 0.06)
+      c.beginPath(); c.moveTo(x - dx, y - dy); c.quadraticCurveTo(x - dy * bend, y + dx * bend, x + dx, y + dy); c.stroke()
+    }
+    for (let b = Math.floor(rnd(4, 8)); b > 0; b--) {
+      const cx = mid + rnd(-0.8, 0.8) * R, cy = mid + rnd(-0.8, 0.8) * R, turn = rnd(0, Math.PI), reach = rnd(0.5, 1.1) * R
+      for (let i = Math.floor(rnd(10, 24)); i > 0; i--) {
+        const across = rnd(-0.3, 0.3) * reach, along = rnd(-0.4, 0.4) * reach
+        k.globalAlpha = rnd(0.12, 0.55); k.lineWidth = rnd(0.5, 1.1)
+        scratch(k, cx - Math.sin(turn) * across + Math.cos(turn) * along, cy + Math.cos(turn) * across + Math.sin(turn) * along,
+          turn + (Math.random() < 0.15 ? rnd(0.5, 1.2) : rnd(-0.1, 0.1)), reach * rnd(0.25, 1.3))
+      }
+    }
+    for (let b = Math.floor(rnd(2, 5)); b > 0; b--) {
+      const cx = mid + rnd(-0.9, 0.9) * R, cy = mid + rnd(-0.9, 0.9) * R, r = rnd(2.5, 7), fling = rnd(0, TAU)
+      k.globalAlpha = rnd(0.2, 0.45)
+      k.beginPath()
+      for (let i = 0; i < 14; i++) {
+        const a = i / 14 * TAU, far = r * rnd(0.6, 1.2)
+        if (i) k.lineTo(cx + Math.cos(a) * far, cy + Math.sin(a) * far); else k.moveTo(cx + Math.cos(a) * far, cy + Math.sin(a) * far)
+      }
+      k.closePath(); k.fill()
+      for (let i = Math.floor(rnd(5, 14)); i > 0; i--) {
+        const far = r * rnd(1.5, 7), a = fling + rnd(-0.5, 0.5)
+        k.beginPath(); k.arc(cx + Math.cos(a) * far, cy + Math.sin(a) * far, rnd(0.5, 1.6) * (1 - far / (r * 8)), 0, TAU); k.fill()
+      }
+    }
+    for (let i = 0; i < 170; i++) {
+      k.globalAlpha = rnd(0.15, 0.6)
+      k.beginPath(); k.arc(rnd(0, size), rnd(0, size), Math.random() < 0.9 ? rnd(0.5, 1) : rnd(1.1, 2), 0, TAU); k.fill()
+    }
+    k.globalCompositeOperation = 'destination-in'; k.globalAlpha = 1; k.drawImage(mask, 0, 0)
+    // 3) worn places: a few scratches take the ice away; then the marks on top
+    g.globalCompositeOperation = 'destination-out'; g.strokeStyle = '#000'; g.lineCap = 'round'
+    for (let i = 0; i < 10; i++) {
+      g.globalAlpha = rnd(0.3, 0.7); g.lineWidth = rnd(0.8, 2)
+      scratch(g, rnd(0.15, 0.85) * size, rnd(0.15, 0.85) * size, rnd(0, Math.PI), rnd(20, 90))
+    }
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1
+    g.drawImage(marks, 0, 0)
+    return ice
+  }
+  /* What a puddle mirrors (since 0.27.1): the sky as a tile that repeats without a seam – an even sheet with brighter
+     clouds and darker gaps, from three octaves of noise. The frame fills every puddle with it as a pattern that drifts
+     with the wind, so the clouds move through the water. Built once per colour. */
+  function mirror(color) {
+    const size = 128, c = document.createElement('canvas')
+    c.width = c.height = size
+    const g = c.getContext('2d'), pixels = g.createImageData(size, size), tone = rgb(color).split(',').map(Number)
+    const far = lattice(3, true), mid = lattice(7, true), fine = lattice(17, true)
+    for (let y = 0, i = 0; y < size; y++) {
+      for (let x = 0; x < size; x++, i += 4) {
+        const u = x / size, v = y / size, n = clamp((0.62 * far(u, v) + 0.32 * mid(u, v) + 0.06 * fine(u, v) - 0.36) / 0.3, 0, 1)
+        for (let ch = 0; ch < 3; ch++) pixels.data[i + ch] = tone[ch]
+        pixels.data[i + 3] = 255 * (0.03 + 0.27 * n * n * (3 - 2 * n))
+      }
+    }
+    g.putImageData(pixels, 0, 0)
+    return c
+  }
   /* Puddle: a flat, irregular water surface – a few bulges that run into each other and two or three small pools
-     beside them, the outline from gentle waves, stretched and turned. Two images: `base` is the water – wet ground is
-     darker than dry, so it is a flat dark area with a soft edge; `gloss` what it mirrors – an even faint sheen, a few
-     narrow bright streaks across it and a fine even line along the outline. The shape is turned by hand, the streaks
-     are not: they keep one direction in every puddle. Flat means: nothing that shades a body (no gradient across the
-     whole area, no rim that is dark on one side and bright on the other, no dome that gets denser towards the middle)
-     – that looks like a stone. Built once, after that only drawImage. */
+     beside them, the outline from gentle waves, stretched and turned. `base` is the water – wet ground is darker than
+     dry, so it is a flat dark area with a soft edge; `gloss` what glints on it (reworked in 0.27.1) – a few short
+     horizontal strokes that taper at both ends and a fine even line along the outline; `outline` = the outline as
+     closed rings (0…1 of the image): the frame clips the mirrored sky (mirror) and the waves of drops to it. The shape
+     is turned by hand, the glints are not: they lie the same way in every puddle. Flat means: nothing that shades a body (no gradient across the whole area, no rim that is dark on one side
+     and bright on the other, no dome that gets denser towards the middle) – that looks like a stone. Built once; the
+     frame draws the gloss in strips that swing against each other (the water moves). */
   function puddle(color, light, dark) {
     const size = 192, mid = size / 2, unit = size * PUDDLE_UNIT
     const stretch = rnd(1.3, 1.9), turn = rnd(0, TAU), ct = Math.cos(turn), sn = Math.sin(turn)
@@ -369,22 +452,29 @@
       lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: rnd(0.28, 0.55) })
     }
     for (let i = Math.floor(rnd(2, 4)); i > 0; i--) {      // small pools beside it
-      const a = rnd(0, TAU), d = rnd(1.15, 1.5)
-      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: rnd(0.07, 0.16) })
+      const a = rnd(0, TAU), d = rnd(1.1, 1.35)
+      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: rnd(0.07, 0.15) })
     }
     const sheet = () => { const c = document.createElement('canvas'); c.width = c.height = size; return c }
-    // the outline as a path, shrunk towards the middle of every bulge
+    // the outline of one bulge as points, shrunk towards its middle
+    const ring = (lobe, shrink) => {
+      const pts = []
+      for (let i = 0; i < 48; i++) {
+        const a = i / 48 * TAU
+        let r = lobe.r * shrink
+        for (const w of waves) r *= 1 + w.a * Math.sin(w.n * a + w.ph + lobe.r * 9)
+        const x = lobe.x * shrink + Math.cos(a) * r, y = (lobe.y * shrink + Math.sin(a) * r) / stretch
+        pts.push([mid + (x * ct - y * sn) * unit, mid + (x * sn + y * ct) * unit])
+      }
+      return pts
+    }
+    // the whole outline as a path
     const trace = (g, shrink) => {
       g.beginPath()
       for (const lobe of lobes) {
-        for (let i = 0; i <= 48; i++) {
-          const a = i / 48 * TAU
-          let r = lobe.r * shrink
-          for (const w of waves) r *= 1 + w.a * Math.sin(w.n * a + w.ph + lobe.r * 9)
-          const x = lobe.x * shrink + Math.cos(a) * r, y = (lobe.y * shrink + Math.sin(a) * r) / stretch
-          const px = mid + (x * ct - y * sn) * unit, py = mid + (x * sn + y * ct) * unit
-          if (i) g.lineTo(px, py); else g.moveTo(px, py)
-        }
+        const pts = ring(lobe, shrink)
+        g.moveTo(pts[0][0], pts[0][1])
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1])
         g.closePath()
       }
     }
@@ -393,22 +483,22 @@
       g.fillStyle = rgba(dark, layer[1]); trace(g, layer[0]); g.fill()
     }
     g.fillStyle = rgba(color, 0.07); trace(g, 0.97); g.fill()
+    // what glints on the water: a few short strokes across, tapering at both ends, cut to the outline
     const gloss = sheet(), h = gloss.getContext('2d')
-    h.save()
-    trace(h, 0.99); h.clip()
-    h.fillStyle = rgba(light, 0.07); h.fillRect(0, 0, size, size)
-    for (let i = Math.floor(rnd(2, 5)); i > 0; i--) {
-      const at = rnd(0.3, 0.7), half = rnd(0.008, 0.028), band = h.createLinearGradient(0, 0, size, size)
-      band.addColorStop(at - half, rgba(light, 0)); band.addColorStop(at, rgba(light, rnd(0.25, 0.5))); band.addColorStop(at + half, rgba(light, 0))
-      h.fillStyle = band; h.fillRect(0, 0, size, size)
+    for (let i = Math.floor(rnd(3, 6)); i > 0; i--) {
+      const len = rnd(0.3, 0.8) * unit, x = mid + rnd(-0.7, 0.7) * unit, y = mid + rnd(-0.6, 0.6) * unit, thick = rnd(1, 1.8)
+      const dash = h.createLinearGradient(x - len / 2, 0, x + len / 2, 0)
+      dash.addColorStop(0, rgba(light, 0)); dash.addColorStop(0.5, rgba(light, rnd(0.3, 0.55))); dash.addColorStop(1, rgba(light, 0))
+      h.fillStyle = dash; h.fillRect(x - len / 2, y - thick / 2, len, thick)
     }
-    h.restore()
+    h.globalCompositeOperation = 'destination-in'; h.fillStyle = '#000'; trace(h, 0.99); h.fill()
+    h.globalCompositeOperation = 'source-over'
     // the line of the water's edge: the area between the outline and a slightly smaller one, evenly bright
     const rim = sheet(), r = rim.getContext('2d')
-    r.fillStyle = rgba(light, 0.2); trace(r, 1); r.fill()
-    r.globalCompositeOperation = 'destination-out'; r.fillStyle = '#000'; trace(r, 0.965); r.fill()
+    r.fillStyle = rgba(light, 0.17); trace(r, 1); r.fill()
+    r.globalCompositeOperation = 'destination-out'; r.fillStyle = '#000'; trace(r, 0.97); r.fill()
     h.drawImage(rim, 0, 0)
-    return { base, gloss }
+    return { base, gloss, outline: lobes.map(lobe => ring(lobe, 0.99).map(q => [q[0] / size, q[1] / size])) }
   }
 
   // Mount the weather canvas into the frame of the floor plan. opts: getMask (outline of the building), getSun (position
@@ -427,8 +517,14 @@
     let ctx = mainCtx     // what is being drawn on right now (draw switches between main image and margin image)
     let fx = null, level = 'normal', col = tokens(), W = 0, H = 0, dpr = 1
     let drops = [], ripples = [], flakes = [], pellets = [], leaves = [], wisps = [], clouds = [], banks = [], stars = [], glints = []
-    let rays = [], puddles = [], cloudImg = [], cloudTint = '', fogImg = [], beamImg = [], beamTint = ''
-    const paneImg = {}                    // image of a light patch per tint (sunlight in its steps, moonlight)
+    let rays = [], puddles = [], cloudImg = [], cloudTint = '', fogImg = [], shimmers = []
+    const paneImg = {}                    // images of light on the floor per tint and softness (pane) and of diffuse light (spill)
+    const beamSets = {}                   // the light shafts in all shapes per tint (sunlight in its steps, moonlight)
+    const beamsOf = tint => beamSets[tint] || (beamSets[tint] = BEAM_PROFILES.map((profile, shape) => beam(tint, shape)))
+    let hot = { mask: null, key: 0, edges: [], total: 0 }   // walls that give off heat (hotWalls)
+    let mirrorTint = '', mirrorPattern = null   // the sky the puddles mirror (mirror), as a pattern
+    const mirrorPan = [0, 0]              // … and how far it has drifted with the wind (grid cells)
+    let flashNow = 0                      // brightness of the lightning in the frame drawn last (the puddles mirror it)
     let puddleShape = null, wet = 0       // puddles: for which building they lie and how large they are right now (0…1.3)
     let frost = [], frostShape = null     // hoarfrost patches (plan units) and the building they were laid out for
     let sunUp = false                     // sunlight (and with it sun rays) can be seen right now
@@ -486,7 +582,7 @@
       if (!fx) return
       darkNow = darkOf(sunNow())
       const night = darkNow > 0.5
-      const key = [fx.kind, fx.rain, fx.snow, fx.wind, fx.gust, fx.cloud, !!fx.hail, frostOf(), !!fx.storm, night, level, step, W, H,
+      const key = [fx.kind, fx.rain, fx.snow, fx.wind, fx.gust, fx.cloud, !!fx.hail, frostOf(), fx.heat, !!fx.storm, night, level, step, W, H,
         col.cloud, col.fog, col.light].join('|')
       if (key === seedKey) return
       seedKey = key
@@ -509,7 +605,9 @@
       stats.wisps = wisps.length
       if (!hadWisps || REDUCED) { warm = false; eddies = []; nextEddy = 0 }
       // Wolken: am Tag dunkle Schatten im Sonnenlicht, nachts helle Schleier
-      const nCloud = fx.kind === 'partly' ? 3 : fx.kind === 'overcast' ? 4 : fx.kind === 'storm' ? 3 : 0
+      // how much of all this there is follows the cloud cover itself, not the weather kind – nothing jumps between two kinds
+      const cover = clamp(fx.cloud || 0, 0, 1), sunny = SUNNY.indexOf(fx.kind) >= 0
+      const nCloud = sunny && cover >= 0.15 ? Math.round(2 + 2.2 * cover) : 0
       const tint = night ? col.fog : col.cloud
       if (nCloud && cloudTint !== tint) { cloudImg = [blob(tint), blob(tint)]; cloudTint = tint }
       fit(clouds, nCloud, () => { const w = rnd(0.42, 0.7) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.58, v: rnd(0.9, 1.1) } })
@@ -517,11 +615,12 @@
       if (fx.kind === 'fog' && !fogImg.length) fogImg = [blob(col.fog), blob(col.fog)]
       fit(banks, fx.kind === 'fog' ? 6 : 0, i => { const w = rnd(0.5, 0.9) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.5, img: fogImg[i % 2], v: rnd(4, 10) } })
       // sun rays: many on a clear day, fewer the more clouds there are; each lives on its own (bornRay)
-      const nRay = ({ clear: 11, partly: 9, overcast: 4, storm: 3 })[fx.kind] || 0
-      fit(rays, Math.round(nRay * soft), () => bornRay({}, true))
+      fit(rays, sunny ? Math.round((11 - 8 * cover) * soft) : 0, () => bornRay({}, true))
+      // heat: lines of hot air that rise from the walls in the sun (not with reduced motion – they only exist moving)
+      fit(shimmers, fx.heat > 0 && !REDUCED ? Math.round(clamp(area / 16000, 8, 34) * soft * k * (0.4 + 0.6 * fx.heat)) : 0, () => ({ fresh: true, age: 0, life: 1 }))
       sunUp = sunlitOf(sunNow())
       // stars (clear to slightly cloudy night) and hoarfrost glitter: fixed places, only the brightness breathes
-      const sky = ['clear', 'partly', 'storm'].indexOf(fx.kind) >= 0 ? Math.pow(1 - clamp(fx.cloud || 0, 0, 1), 1.4) : 0
+      const sky = sunny ? Math.pow(1 - cover, 1.4) : 0
       const dot = (lo, hi) => () => ({ u: Math.random(), v: Math.random(), r: rnd(lo, hi), a: rnd(0.3, 0.85), ph: rnd(0, TAU), sp: rnd(0.4, 1.6) })
       fit(stars, Math.round(clamp(area / 5200, 14, 110) * sky * soft), dot(0.5, 1.25))
       fit(glints, fx.frost ? Math.round(clamp(area / 6000, 14, 90) * soft * (0.5 + 0.5 * frostOf())) : 0, dot(2.2, 4.6))
@@ -536,7 +635,7 @@
     // shimmer, tilt = small turn against the light, motes = dust that glints in it (u along, v across, s = pace).
     // Below clouds rays live shorter, pause longer and start further in.
     function bornRay(r, first) {
-      const cloudy = !fx || fx.kind !== 'clear'
+      const cloudy = !fx || (fx.cloud || 0) >= 0.2
       r.shape = Math.floor(Math.random() * BEAM_PROFILES.length)
       r.off = rnd(-1, 1); r.w = rnd(0.045, 0.16) * (r.shape === 2 ? 0.45 : 1); r.a = rnd(0.5, 1)
       r.len = 0.3 + 1.05 * Math.pow(Math.random(), 1.4); r.start = rnd(0, cloudy ? 0.5 : 0.25); r.grow = rnd(0.25, 0.6)
@@ -558,7 +657,8 @@
     /* Free places on the ground for what lies there (puddles, hoarfrost): in plan units, so they move with the plan;
        never in the house and never where another floor builds over the ground. o = {per: plan units² per spot,
        min, max: number, r: [smallest, largest radius], keep: share of the radius that must stay free, decks: false =
-       also keep off balconies and terraces of this floor}. */
+       also keep off balconies and terraces of this floor, apart: two spots keep this many times the sum of their
+       radii between their centres (puddles never run into each other)}. Every spot gets a turn (rot) of its own. */
     function groundSpots(mask, o) {
       const v = mask.view, box = mask.box, spots = []
       if (!v || !(v.s > 0)) return spots
@@ -577,10 +677,11 @@
       }
       const want = Math.round(clamp((x1 - x0) * (y1 - y0) / o.per, o.min, o.max) * (OLD ? 0.7 : 1))
       for (let i = 0; i < want; i++) {
-        for (let tries = 0; tries < 14; tries++) {
+        for (let tries = 0; tries < 24; tries++) {
           const r = rnd(o.r[0], o.r[1]), x = rnd(x0, x1), y = rnd(y0, y1)
           if (!free(x, y, r * o.keep + 0.5)) continue
-          spots.push({ x, y, r })
+          if (o.apart && spots.some(q => Math.hypot(q.x - x, q.y - y) < (q.r + r) * o.apart)) continue
+          spots.push({ x, y, r, rot: rnd(0, TAU) })
           break
         }
       }
@@ -592,15 +693,16 @@
     function seedPuddles(mask) {
       puddleShape = mask.shape || ''
       const images = [0, 1, 2, 3, 4].map(() => puddle(col.rain, col.light, col.cloud))
-      puddles = groundSpots(mask, { per: 55, min: 4, max: 11, r: [1, 2], keep: 1.9, decks: false })
-        .map((s, i) => Object.assign(s, { img: images[i % images.length] }))
+      // a puddle reaches 1.5 radii with its small pools and grows to 1.3 times its size in heavy rain: apart = 2
+      puddles = groundSpots(mask, { per: 55, min: 4, max: 11, r: [1, 2], keep: 1.9, decks: false, apart: 2 })
+        .map((s, i) => Object.assign(s, { img: images[i % images.length], waves: [] }))
     }
-    // Lay out hoarfrost patches for this building: close together over the ground, also on balconies and terraces (frost
-    // forms there as well), never in the house or under another floor.
+    // Lay out hoarfrost patches for this building: large and overlapping, so the ground reads as one sheet of ice with
+    // gaps – also on balconies and terraces (frost forms there as well), never in the house or under another floor.
     function seedFrost(mask) {
       frostShape = mask.shape || ''
       const images = [0, 1, 2].map(() => rime(col.snow))
-      frost = groundSpots(mask, { per: 22, min: 6, max: 18, r: [1.3, 2.6], keep: 0.6, decks: true })
+      frost = groundSpots(mask, { per: 11, min: 8, max: 30, r: [2, 3.8], keep: 0.45, decks: true })
         .map((s, i) => Object.assign(s, { img: images[i % images.length] }))
     }
 
@@ -879,12 +981,12 @@
       }
       const wash = (color, a) => { ctx.globalAlpha = a; ctx.fillStyle = color; ctx.fillRect(box.x, box.y, box.w, box.h) }
       // centre of the building (lightning strikes next to it)
-      let cx = mx, rad = Math.max(box.w, box.h) / 2
+      let cx = mx, cy = my, rad = Math.max(box.w, box.h) / 2
       const pts = [].concat.apply([], mask.polys || [])
       if (pts.length) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
         for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) }
-        cx = (x0 + x1) / 2; rad = Math.max(20, Math.max(x1 - x0, y1 - y0) / 2)
+        cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; rad = Math.max(20, Math.max(x1 - x0, y1 - y0) / 2)
       }
 
       // 0) Daylight: by day the surroundings are brighter – evenly over the whole frame up to the wall, because sky light
@@ -893,10 +995,11 @@
       const sunlit = sunUp = sunlitOf(sun)
       const day = sun && typeof sun.el === 'number' ? clamp((sun.el + 6) / 16, 0, 1) : fx.is_day === false ? 0 : 1
       const up = sunlit ? clamp((sun.el + 6) / 12, 0, 1) : 0, low = sunlit ? clamp(1 - sun.el / 25, 0, 1) : 0, heat = fx.heat || 0
-      // warm tint of the sunlight: pale at noon, golden with a low sun (in steps, so that the shaft images are rarely rebuilt)
-      const sunColor = mix(col.light, col.sun, Math.round((0.2 + 0.45 * low) * 10) / 10)
+      // tint of the sunlight: almost white at noon, a little warm in the morning and evening (since 0.27.1 far less
+      // saturated; in steps, so that the shaft images are rarely rebuilt)
+      const sunColor = mix(col.light, col.sun, Math.round((0.05 + 0.3 * Math.pow(low, 1.4)) * 20) / 20)
       const dull = fx.rain > 0 || fx.snow > 0 || fx.kind === 'fog' || !!fx.thunder, cloud = clamp(fx.cloud || 0, 0, 1)
-      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.1) : col.light, (dull ? 0.075 : 0.16 - 0.06 * cloud) * day * k)
+      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.05) : col.light, (dull ? 0.075 : 0.16 - 0.06 * cloud) * day * k)
       // moonlight: only in a clear night, by the phase of the moon and how high it stands
       const moon = sun && sun.moon, open = (fx.kind === 'clear' || fx.kind === 'partly') && !dull
       const moonlit = moon && moon.el > 0 && open ? moon.phase * Math.pow(1 - cloud, 1.5) * clamp(moon.el / 12, 0, 1) * clamp((dark - 0.6) / 0.4, 0, 1) : 0
@@ -909,17 +1012,23 @@
       wet = dt ? wet + (wetGoal - wet) * Math.min(1, dt * 0.6) : running() ? wet : wetGoal
       if (fx.snow > 0 || fx.frost || raining || wet > 0.03) onEdge()
       if (fx.snow > 0) wash(col.snow, (0.03 + 0.04 * fx.snow) * k * (1 - 0.5 * dark))
-      else if (fx.frost) wash(col.snow, 0.04 * k * frostOf())
-      // hoarfrost: patches of frost flowers, fixed on the ground; at night they stay visible, only dimmer. In mild cold
+      else if (fx.frost) wash(col.snow, 0.03 * k * frostOf())
+      // hoarfrost: patches of worn ice, fixed on the ground; at night they stay visible, only dimmer. In mild cold
       // fewer of them lie, and paler.
       let frostShown = 0
       if (fx.frost && frost.length && mask.view) {
         const v = mask.view, cold = frostOf(), some = Math.ceil(frost.length * (0.45 + 0.55 * cold))
-        ctx.globalAlpha = 0.62 * k * (1 - 0.3 * dark) * (0.6 + 0.4 * cold)
+        // subtle (since 0.27.1). The sun thins the frost: on the sunny side of the house less of it is left than in
+        // its shadow.
+        const strength = FROST_ALPHA * k * (1 - 0.3 * dark) * (0.6 + 0.4 * cold)
         for (const p of frost.slice(0, some)) {
-          const half = p.r * v.s / FROST_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s
-          if (x + half < box.x || x - half > bx1 || y + half < box.y || y - half > by1) continue
-          ctx.drawImage(p.img, x - half, y - half, half * 2, half * 2)
+          const half = p.r * v.s / FROST_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s, far = half * 1.42   // turned: the diagonal
+          if (x + far < box.x || x - far > bx1 || y + far < box.y || y - far > by1) continue
+          const shade = sunlit ? clamp(0.5 - ((x - cx) * sun.dir[0] + (y - cy) * sun.dir[1]) / (2.5 * rad), 0, 1) : 0.5
+          ctx.globalAlpha = strength * (0.65 + 0.7 * shade)
+          ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot)
+          ctx.drawImage(p.img, -half, -half, half * 2, half * 2)
+          ctx.restore()
           frostShown++
         }
       }
@@ -929,15 +1038,70 @@
       // puddles: the stronger the rain, the larger. They lie fixed on the ground and keep a distance to the wall.
       let puddlesShown = 0
       if (puddles.length && wet > 0.03 && mask.view) {
-        // the water, and on it what it mirrors: more by day (the bright sky), a remainder at night; it shimmers a little
-        const v = mask.view, full = pk * clamp(wet * 2.5, 0, 1), sky = 0.35 + 0.5 * day
+        // The water mirrors the sky: more by day, a remainder at night, bright for a moment when lightning flashes. The
+        // mirror image is a pattern of clouds (mirror) that drifts through every puddle with the wind. A drop that lands
+        // in a puddle (land) sends a wave across it that breaks the mirror image: in the ring the image is displaced, a
+        // dark trough in front of a bright crest – cut off at the water's edge. On top the glints, drawn in strips that
+        // swing against each other (more in heavy rain and wind).
+        const v = mask.view, full = PUDDLE_ALPHA * pk * clamp(wet * 2.5, 0, 1), sky = clamp((0.4 + 0.5 * day) * (1 + 2.5 * flashNow), 0, 1.6)
+        const rough = 0.012 + 0.03 * (fx.rain || 0) + 0.014 * wind, strips = OLD ? 6 : 12
+        if (mirrorTint !== col.light) { mirrorTint = col.light; mirrorPattern = mainCtx.createPattern(mirror(col.light), 'repeat') }
+        if (dt) { mirrorPan[0] += wv[0] * pace * 0.22 * dt / v.s; mirrorPan[1] += wv[1] * pace * 0.22 * dt / v.s }
+        const scale = 4.6 * v.s / 128      // one tile of the mirror covers 4.6 grid cells
+        // fill a rectangle with the mirrored sky, displaced by sx, sy pixels
+        const reflect = (x0, y0, w, h, sx, sy, alpha) => {
+          const ox = v.x + mirrorPan[0] * v.s + sx, oy = v.y + mirrorPan[1] * v.s + sy
+          ctx.save()
+          ctx.globalAlpha = clamp(alpha, 0, 1); ctx.fillStyle = mirrorPattern
+          ctx.translate(ox, oy); ctx.scale(scale, scale)
+          ctx.fillRect((x0 - ox) / scale, (y0 - oy) / scale, w / scale, h / scale)
+          ctx.restore()
+        }
         for (const p of puddles) {
-          const half = p.r * v.s * wet / PUDDLE_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s
+          const half = p.r * v.s * wet / PUDDLE_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s, left = x - half, top = y - half, edge = half * 2
+          if (dt) p.waves = p.waves.filter(w => (w.t += dt) < w.life)
           if (x + half < box.x || x - half > bx1 || y + half < box.y || y - half > by1) continue
           ctx.globalAlpha = 0.9 * full
-          ctx.drawImage(p.img.base, x - half, y - half, half * 2, half * 2)
-          ctx.globalAlpha = sky * full * (0.88 + 0.12 * Math.sin(t * 1.1 + p.x * 3))
-          ctx.drawImage(p.img.gloss, x - half, y - half, half * 2, half * 2)
+          ctx.drawImage(p.img.base, left, top, edge, edge)
+          ctx.save()
+          ctx.beginPath()
+          for (const ring of p.img.outline) {
+            ctx.moveTo(left + ring[0][0] * edge, top + ring[0][1] * edge)
+            for (let i = 1; i < ring.length; i++) ctx.lineTo(left + ring[i][0] * edge, top + ring[i][1] * edge)
+            ctx.closePath()
+          }
+          ctx.clip()
+          if (mirrorPattern) reflect(left, top, edge, edge, 0, 0, sky * full)
+          const body = edge * PUDDLE_UNIT      // radius 1 of the puddle in pixels
+          for (const w of p.waves) {
+            const q = w.t / w.life, wx = x + w.x * body, wy = y + w.y * body, R = 2 + q * w.R * body, fade = (1 - q) * (1 - q) * full
+            const band = 2.5 + 2 * q
+            if (mirrorPattern && !OLD) {
+              // the ring of the wave: the image below is dimmed and laid in again, pushed outwards – the water bends it
+              ctx.save()
+              ctx.beginPath(); ctx.moveTo(wx + R + band, wy); ctx.arc(wx, wy, R + band, 0, TAU)
+              ctx.moveTo(wx + Math.max(0.1, R - band), wy); ctx.arc(wx, wy, Math.max(0.1, R - band), 0, TAU, true)
+              ctx.clip()
+              ctx.globalAlpha = 0.5 * fade; ctx.fillStyle = col.cloud; ctx.fillRect(wx - R - band, wy - R - band, 2 * (R + band), 2 * (R + band))
+              reflect(wx - R - band, wy - R - band, 2 * (R + band), 2 * (R + band), 5 + 3 * q, 4 + 2 * q, 1.5 * sky * fade)
+              ctx.restore()
+            }
+            ctx.strokeStyle = col.cloud; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.5 * fade
+            ctx.beginPath(); ctx.arc(wx, wy, Math.max(0.5, R - band), 0, TAU); ctx.stroke()
+            ctx.strokeStyle = col.light; ctx.lineWidth = 1.2; ctx.globalAlpha = clamp(0.7 * fade * sky, 0, 1)
+            ctx.beginPath(); ctx.arc(wx, wy, R + band, 0, TAU)
+            if (q > 0.3) { ctx.moveTo(wx + R * 0.56, wy); ctx.arc(wx, wy, R * 0.56, 0, TAU) }
+            ctx.stroke()
+          }
+          ctx.globalAlpha = clamp(sky * full, 0, 1)
+          const src = p.img.gloss.height / strips
+          for (let i = 0; i < strips; i++) {
+            // whole pixels: the strips neither overlap nor leave a gap
+            const y0 = Math.round(top + i * edge / strips), y1 = Math.round(top + (i + 1) * edge / strips)
+            const swing = half * rough * Math.sin(t * 2.3 + i * 1.1 + p.x * 3)
+            if (y1 > y0) ctx.drawImage(p.img.gloss, 0, i * src, p.img.gloss.width, src, left + swing, y0, edge, y1 - y0)
+          }
+          ctx.restore()
           puddlesShown++
         }
       }
@@ -950,7 +1114,7 @@
       const reach = sunlit ? 0.5 * (Math.abs(sun.dir[0]) * box.w + Math.abs(sun.dir[1]) * box.h) : 0
       if (sunlit) {
         onEdge()
-        const strength = (fx.kind === 'clear' ? 0.1 : fx.kind === 'overcast' ? 0.035 : 0.065) * (1 - 0.4 * cloud) * up * (1 + 0.35 * heat) * k
+        const strength = (0.1 - 0.07 * cloud) * (1 - 0.4 * cloud) * up * (1 + 0.35 * heat) * k
         const far = 0.35 + 0.65 * low
         const g = ctx.createLinearGradient(mx + sun.dir[0] * reach, my + sun.dir[1] * reach, mx - sun.dir[0] * reach * far, my - sun.dir[1] * reach * far)
         g.addColorStop(0, rgba(sunColor, 1)); g.addColorStop(0.5, rgba(sunColor, 0.6)); g.addColorStop(1, rgba(sunColor, 0.33))
@@ -971,7 +1135,7 @@
         if (dt) { c.x += wv[0] * pace * CLOUD_PACE * c.v * dt; c.y += wv[1] * pace * CLOUD_PACE * c.v * dt }
         if (c.x < box.x - c.w / 2) c.x += box.w + c.w; if (c.x > bx1 + c.w / 2) c.x -= box.w + c.w
         if (c.y < box.y - c.h / 2) c.y += box.h + c.h; if (c.y > by1 + c.h / 2) c.y -= box.h + c.h
-        ctx.globalAlpha = c.night ? (fx.kind === 'partly' ? 0.09 : 0.12) * k * dark : (fx.kind === 'partly' ? 0.4 : 0.28) * k * (1 - dark)
+        ctx.globalAlpha = c.night ? (0.06 + 0.06 * cloud) * k * dark : (0.44 - 0.17 * cloud) * k * (1 - dark)
         ctx.drawImage(c.img, c.x - c.w / 2, c.y - c.h / 2, c.w, c.h)
       }
       // 4) Fog: an even veil, above it sluggish banks that move with the wind – up to the wall (without a margin)
@@ -991,11 +1155,12 @@
       //    into them (shadeRays) – they are drawn alone on the margin image and laid onto the main image at once.
       let lit = 0, blocked = 0
       if (sunlit && rays.length) {
-        if (beamTint !== sunColor) { beamImg = BEAM_PROFILES.map((profile, shape) => beam(sunColor, shape)); beamTint = sunColor }
+        const beamImg = beamsOf(sunColor)
         onEdge()
-        const cloudy = fx.kind !== 'clear', ax = -sun.dir[0], ay = -sun.dir[1], angle = Math.atan2(ay, ax)
+        const cloudy = cloud >= 0.2, ax = -sun.dir[0], ay = -sun.dir[1], angle = Math.atan2(ay, ax)
         const across = 0.5 * (Math.abs(ay) * box.w + Math.abs(ax) * box.h), span = Math.max(box.w, box.h)
-        const power = (cloudy ? (fx.kind === 'partly' ? 0.16 : 0.13) : 0.13 * (1 + 0.35 * heat)) * up * k
+        // strongest where gaps in the clouds bundle the light; under a closed cover they fade away
+        const power = (0.13 + 0.04 * Math.sin(Math.PI * cloud)) * clamp((1 - cloud) / 0.1, 0.12, 1) * (1 + 0.35 * heat * (1 - cloud)) * up * k
         // The rays wander with the wind like the clouds whose gaps they fall through: what shows from above is the
         // movement across the light, at the pace of the clouds (on a clear day only with the haze, RAY_HAZE). If the
         // wind blows almost along the light, they still wander slowly to one side (RAY_SIDE_MIN) – standing rays under
@@ -1045,6 +1210,42 @@
       }
       stats.rays = lit
       stats.blocked = blocked
+      // 5b) Heat (since 0.27.1): the walls in the sun give their heat off – gently waving lines detach from them, three
+      //     behind each other, drift away from the wall and dissolve. Each lives on its own; where it starts is a share of the
+      //     length of all hot walls (pick), so it keeps its wall while the plan moves.
+      let hazes = 0
+      if (shimmers.length && sunlit && heat > 0 && day > 0.4) {
+        const cell = view && view.s > 0 ? view.s : 30, walls = hotWalls(mask, sun.dir, 0.9 * cell)
+        if (walls.total > 0) {
+          onEdge()
+          ctx.strokeStyle = sunColor; ctx.lineCap = 'round'; ctx.lineWidth = 1
+          for (const s of shimmers) {
+            if (dt) s.age += dt
+            if (s.fresh || s.age >= s.life) {
+              s.pick = Math.random(); s.life = rnd(2.4, 5); s.age = s.fresh ? rnd(0, s.life) : 0
+              s.w = rnd(0.9, 2.2); s.far = rnd(0.5, 1.3); s.ph = rnd(0, TAU); s.fresh = false
+            }
+            let along = s.pick * walls.total, edge = walls.edges[0]
+            for (const w of walls.edges) { edge = w; if (along <= w.len) break; along -= w.len }
+            const p = s.age / s.life, glow = Math.sin(Math.PI * p), out = wall / 2 + MARGIN + 3 + p * s.far * cell
+            const half = Math.min(s.w * cell, edge.len) / 2, mid = clamp(along, half, edge.len - half)
+            const x0 = edge.x + edge.tx * mid + edge.nx * out, y0 = edge.y + edge.ty * mid + edge.ny * out
+            for (let line = 0; line < 3; line++) {
+              ctx.globalAlpha = clamp(0.26 * heat * glow * (1 - 0.3 * line) * up * k, 0, 0.26)
+              ctx.beginPath()
+              for (let i = 0; i <= 14; i++) {
+                const q = i / 14, run = (q - 0.5) * 2 * half * (1 - 0.15 * line)
+                const wave = (0.9 + 1.3 * p) * Math.sin(Math.PI * q) * Math.sin(q * 6.5 + t * 2.6 + s.ph + line * 0.9) + line * (3 + 1.5 * p)
+                if (i) ctx.lineTo(x0 + edge.tx * run + edge.nx * wave, y0 + edge.ty * run + edge.ny * wave)
+                else ctx.moveTo(x0 + edge.tx * run + edge.nx * wave, y0 + edge.ty * run + edge.ny * wave)
+              }
+              ctx.stroke()
+            }
+            hazes++
+          }
+        }
+      }
+      stats.haze = hazes
       // 6) Stars: twinkle calmly, fade with dusk; rarely a shooting star
       if (stars.length && dark > 0.15) {
         onEdge()
@@ -1163,7 +1364,18 @@
       //    Drizzle falls shorter and slower. Every drop has its target on the ground somewhere in the image: there it ends,
       //    and exactly there its ripple spreads – no ripple without a drop, no drop without a ripple.
       const slant = clamp(wv[0] * (0.25 + wind * 0.9), -0.9, 0.9)
-      const land = (x, y, R, life) => { if (ripples.length < MAX_RIPPLES) ripples.push({ x, y, t: 0, life, R }) }
+      // A drop or hailstone lands: a ripple on the ground – and if it hits a puddle, a wave across its water (position
+      // and reach in radii of the puddle, so it stays in it while the plan moves).
+      const land = (x, y, R, life) => {
+        if (ripples.length < MAX_RIPPLES) ripples.push({ x, y, t: 0, life, R })
+        if (!view || wet <= 0.03) return
+        for (const p of puddles) {
+          const body = p.r * view.s * wet, dx = (x - view.x - p.x * view.s) / body, dy = (y - view.y - p.y * view.s) / body
+          if (dx * dx + dy * dy > 2.6 || p.waves.length >= 10) continue
+          p.waves.push({ x: dx, y: dy, t: 0, life: rnd(1.1, 1.9), R: rnd(0.4, 0.75) })
+          return
+        }
+      }
       // Restart a drop or hailstone: the target is a point on the ground, it starts a bit above it – offset
       // the way the wind slants the fall. spread = somewhere along the way (the first time, so that not all
       // land at once).
@@ -1296,6 +1508,7 @@
         }
       }
       // 13) Thunderstorm: short, double brightening pulse every 8–25 s, occasionally a lightning bolt at the edge (with a soft glow)
+      if (!flash) flashNow = 0
       if (fx.thunder && !REDUCED && now) {
         if (!flash && now >= nextFlash) {
           flash = { t0: now, len: rnd(120, 250), bolt: Math.random() < 0.45 ? bolt(box, cx, rad) : null }
@@ -1304,6 +1517,7 @@
         if (flash) {
           const ft = now - flash.t0, L = flash.len
           const env = ft < L ? Math.sin(Math.PI * ft / L) : ft < L * 1.6 ? 0 : ft < L * 2.4 ? 0.6 * Math.sin(Math.PI * (ft - L * 1.6) / (L * 0.8)) : -1
+          flashNow = Math.max(0, env)
           if (env < 0) flash = null
           else if (env > 0) {
             wash(col.flash, env * (0.12 + 0.08 * dark) * k)
@@ -1329,13 +1543,15 @@
     /* The inside layer (since 0.27), drawn onto the main image after the building was punched out: light through the
        windows and the sound waves of speakers (getIndoor, plan units). Every part is clipped to the room it belongs to
        and the walls are cut out again afterwards, so nothing passes a wall; only the bloom of a sunlit window lies on
-       top of its wall. e = what the frame already knows: day and dark (0…1), k (strength), cloud, dull (precipitation
+       top of its wall. Since 0.27.1 light passes an open door (indoor.doors): the brightness of a room spills into the
+       next one, and a patch of sunlight that reaches the door continues behind it – exactly the part that fits through
+       the opening. e = what the frame already knows: day and dark (0…1), k (strength), cloud, dull (precipitation
        or fog), sunlit, sunColor, moonlit (0…1), heat. */
     function drawIndoor(mask, sun, t, e) {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, v = mask.view, c = mainCtx, box = mask.box
-      stats.windows = stats.beams = stats.sound = 0
+      stats.windows = stats.beams = stats.sound = stats.doors = 0
       if (!indoor || !v || !(v.s > 0)) return
-      const polys = mask.polys || [], at = p => [v.x + p[0] * v.s, v.y + p[1] * v.s]
+      const polys = mask.polys || [], at = p => [v.x + p[0] * v.s, v.y + p[1] * v.s], wall = mask.wall || 6
       // limit drawing to one room; false if the room does not exist (any more)
       const enter = index => {
         const poly = polys[index]
@@ -1352,23 +1568,38 @@
         g.addColorStop(0, rgba(color, alpha)); g.addColorStop(0.5, rgba(color, alpha * 0.45)); g.addColorStop(1, rgba(color, 0))
         c.globalAlpha = 1; c.fillStyle = g; c.fillRect(x - r, y - r, 2 * r, 2 * r)
       }
+      // lay an image of light (pane, spill) onto the floor: its top edge from a to b, running along (lx, ly) – pixels
+      // per grid cell – from `near` to `near + deep` cells
+      const lay = (img, a, b, lx, ly, near, deep, alpha) => {
+        c.save()
+        c.transform((b[0] - a[0]) / PANE_W, (b[1] - a[1]) / PANE_W, lx * deep / PANE_H, ly * deep / PANE_H, a[0] + lx * near, a[1] + ly * near)
+        c.globalAlpha = alpha; c.drawImage(img, 0, 0)
+        c.restore()
+      }
+      // the segment a–b, longer by `more` of its length at both ends
+      const widen = (a, b, more) => [[a[0] - (b[0] - a[0]) * more, a[1] - (b[1] - a[1]) * more], [b[0] + (b[0] - a[0]) * more, b[1] + (b[1] - a[1]) * more]]
+      // a fixed random number 0…1 for n – what belongs to a window keeps its place without being stored
+      const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x) }
       c.save()
       c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.clip()
-      // 1) Light through the windows. Sky light by day: a glow that spills in at every window. Direct light: the sun
-      //    by day, the moon in a clear night – a patch on the floor if it stands on the side of the window.
-      const blooms = []
+      // 1) Light through the windows. Sky light by day: it spills in at every window, under any sky – diffuse, without
+      //    an edge. Direct light: the sun by day, the moon in a clear night – a patch on the floor if it stands on the
+      //    side of the window; clouds make it weaker and softer (pane with `soft`).
+      const blooms = [], lights = [], bright = {}, thresholds = []
+      let tint = e.sunColor, patchImg = null, spillImg = null
       if (!fx.indoor_only && indoor.windows.length) {
-        const skylight = e.day * (e.dull ? 0.45 : 1 - 0.45 * e.cloud)
-        let dir = null, el = 0, power = 0, tint = e.sunColor
+        const skylight = e.day * (e.dull ? 0.5 : 1 - 0.4 * e.cloud)
+        let dir = null, el = 0, power = 0, soft = 0
         if (e.sunlit && sun.el > 0.5) {
-          // through clouds less of it arrives; partly cloudy, clouds pass in front of the sun – it swells and fades slowly
-          const through = fx.kind === 'clear' ? 1 : fx.kind === 'partly' ? 0.7 : 0.22
-          const passing = fx.kind === 'partly' ? 0.75 + 0.25 * Math.sin(t * 0.19) * Math.sin(t * 0.07 + 1.3) : 1
-          dir = sun.dir; el = sun.el; power = through * passing * clamp(sun.el / 4, 0, 1) * (1 + 0.25 * e.heat)
+          // through clouds less of it arrives; while clouds pass in front of the sun it swells and fades slowly
+          const passing = 1 - 0.25 * Math.sin(Math.PI * e.cloud) * (1 - Math.sin(t * 0.19) * Math.sin(t * 0.07 + 1.3))
+          dir = sun.dir; el = sun.el; soft = Math.round(e.cloud * 2)
+          power = (1 - 0.8 * Math.pow(e.cloud, 1.5)) * passing * clamp(sun.el / 4, 0, 1) * (1 + 0.25 * e.heat)
         } else if (e.moonlit > 0.02) {
           dir = sun.moon.dir; el = sun.moon.el; power = MOON_LIGHT * e.moonlit; tint = col.moon
         }
-        if (dir && !paneImg[tint]) paneImg[tint] = pane(tint)
+        if (dir) patchImg = paneImg[tint + '|' + soft] || (paneImg[tint + '|' + soft] = pane(tint, soft))
+        if (skylight > 0.02) spillImg = paneImg['spill|' + col.light] || (paneImg['spill|' + col.light] = spill(col.light))
         // by day no room is pitch dark next to the bright surroundings: a breath of light in all of them
         if (skylight > 0.02) {
           c.globalAlpha = 0.03 * skylight * e.k; c.fillStyle = col.light
@@ -1376,51 +1607,117 @@
           for (const poly of polys) { if (poly.length < 3) continue; c.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < poly.length; i++) c.lineTo(poly[i][0], poly[i][1]); c.closePath() }
           c.fill()
         }
-        const rooms = {}
-        for (const w of indoor.windows) (rooms[w.room] = rooms[w.room] || []).push(w)
-        for (const index of Object.keys(rooms)) {
-          if (!enter(+index)) continue
-          let brightest = 0
-          for (const w of rooms[index]) {
-            const a = at(w.a), b = at(w.b), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], len = Math.hypot(b[0] - a[0], b[1] - a[1])
-            const sky = skylight * w.open
-            if (sky > 0.02) glow(mid[0] + w.n[0] * len * 0.1, mid[1] + w.n[1] * len * 0.1, len * 0.8 + 1.8 * v.s, col.light, 0.2 * sky * e.k)
-            // n points into the room: light comes in if the sun (or the moon) stands on the other side of the window
-            const facing = dir ? -(dir[0] * w.n[0] + dir[1] * w.n[1]) : 0, direct = power * w.open * clamp((facing - 0.05) / 0.3, 0, 1)
-            if (sky > 0.02 || direct > 0.01) stats.windows++
-            if (direct <= 0.01) continue
-            // the patch on the floor: from where the light over the sill lands to where the light below the head lands
-            const slope = Math.tan(el * Math.PI / 180), far = Math.min(WINDOW_REACH, WINDOW_HEAD / slope), near = Math.min(WINDOW_SILL / slope, far * 0.22)
-            const lx = -dir[0] * v.s, ly = -dir[1] * v.s, deep = far - near
-            c.save()
-            c.transform((b[0] - a[0]) / PANE_W, (b[1] - a[1]) / PANE_W, lx * deep / PANE_H, ly * deep / PANE_H, a[0] + lx * near, a[1] + ly * near)
-            c.globalAlpha = clamp(WINDOW_LIGHT * direct * e.k, 0, 0.5)
-            c.drawImage(paneImg[tint], 0, 0)
-            c.restore()
-            // what the lit floor throws back into the room
-            glow(mid[0] + lx * (near + deep * 0.45), mid[1] + ly * (near + deep * 0.45), (2.2 + 0.45 * deep) * v.s + len * 0.5, tint, 0.085 * direct * e.k)
-            brightest = Math.max(brightest, direct)
-            blooms.push({ x: mid[0], y: mid[1], len, turn: Math.atan2(b[1] - a[1], b[0] - a[0]), a: direct, tint })
+        // what every window lets in: sky = diffuse light, direct = sun or moon; the patch on the floor reaches from where
+        // the light over the sill lands (near) to where the light below the head lands. A roller shutter comes down
+        // from the head: the patch gets shorter from its far end, and less sky light enters.
+        indoor.windows.forEach((w, index) => {
+          const a = at(w.a), b = at(w.b), sky = skylight * w.open
+          // n points into the room: light comes in if the sun (or the moon) stands on the other side of the window
+          const facing = dir ? -(dir[0] * w.n[0] + dir[1] * w.n[1]) : 0
+          const direct = power * clamp(w.open / 0.12, 0, 1) * clamp((facing - 0.05) / 0.3, 0, 1)
+          if (sky <= 0.02 && direct <= 0.01) return
+          const light = { w, index, a, b, mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], len: Math.hypot(b[0] - a[0], b[1] - a[1]), sky, direct, near: 0, deep: 0, lx: 0, ly: 0 }
+          if (direct > 0.01) {
+            const slope = Math.tan(el * Math.PI / 180), far = Math.min(WINDOW_REACH, WINDOW_HEAD / slope)
+            light.near = Math.min(WINDOW_SILL / slope, far * 0.22)
+            light.deep = Math.max(0.12, (far - light.near) * w.open)
+            light.lx = -dir[0] * v.s; light.ly = -dir[1] * v.s
             stats.beams++
-          }
-          // a room with direct light is a touch brighter as a whole
-          if (brightest > 0) { c.globalAlpha = 0.04 * brightest * e.k; c.fillStyle = tint; c.fillRect(box.x, box.y, box.w, box.h) }
+          } else light.direct = 0
+          lights.push(light)
+          bright[w.room] = Math.min(1, (bright[w.room] || 0) + 0.5 * sky + 0.6 * light.direct)
+          stats.windows++
+        })
+      }
+      // Shafts of light in the air of the room (the sun rays of the outside, continued): from the window along the light
+      // to the patch on the floor, a few per window, each shimmering and wandering a little; dust glints in them.
+      const shafts = (l, share) => {
+        const beams = beamsOf(tint), n = clamp(Math.round(l.len / v.s * 1.5), 2, 4), angle = Math.atan2(l.ly, l.lx)
+        const ux = l.b[0] - l.a[0], uy = l.b[1] - l.a[1]
+        c.save()
+        c.globalCompositeOperation = 'lighter'
+        for (let i = 0; i < n; i++) {
+          const h1 = hash(l.index * 7.3 + i * 3.1), h2 = hash(l.index * 5.7 + i * 1.9 + 4), h3 = hash(l.index * 2.3 + i * 8.1 + 9)
+          const pos = clamp((i + 0.5) / n + 0.2 * (h1 - 0.5) + 0.06 * Math.sin(t * 0.13 + h2 * TAU), 0.06, 0.94)
+          const shine = 0.6 + 0.4 * Math.sin(t * (0.25 + 0.45 * h3) + h1 * TAU) * Math.sin(t * 0.09 + h2 * TAU)
+          const wide = l.len * (0.2 + 0.22 * h2), long = (l.near + l.deep * (0.85 + 0.5 * h3) + 0.6) * v.s
+          c.save()
+          c.translate(l.a[0] + ux * pos, l.a[1] + uy * pos); c.rotate(angle + 0.05 * (h1 - 0.5))
+          c.globalAlpha = clamp(0.3 * l.direct * shine * e.k * share, 0, 0.34)
+          c.drawImage(beams[i % 3], 0, -wide / 2, long, wide)
           c.restore()
         }
+        c.fillStyle = tint
+        for (let i = 0; i < (OLD ? 2 : 4); i++) {
+          const h1 = hash(l.index * 3.9 + i * 6.7 + 2), h2 = hash(l.index * 1.3 + i * 4.3 + 6), h3 = hash(l.index * 9.1 + i * 2.9 + 1)
+          const u = (h1 + t * (0.012 + 0.02 * h2)) % 1, across = 0.12 + 0.76 * h3 + 0.03 * Math.sin(t * 0.4 + h1 * TAU), far = (l.near + l.deep) * u
+          c.globalAlpha = clamp(0.9 * l.direct * Math.min(1, u / 0.15) * (1 - u) * (0.5 + 0.5 * Math.sin(t * 1.7 + h2 * TAU)) * e.k * share, 0, 0.6)
+          c.fillRect(l.a[0] + ux * across + l.lx * far - 0.8, l.a[1] + uy * across + l.ly * far - 0.8, 1.6, 1.6)
+        }
+        c.restore()
+      }
+      const rooms = {}
+      for (const l of lights) (rooms[l.w.room] = rooms[l.w.room] || []).push(l)
+      for (const index of Object.keys(rooms)) {
+        if (!enter(+index)) continue
+        let brightest = 0
+        for (const l of rooms[index]) {
+          const n = l.w.n
+          if (l.sky > 0.02) {
+            const wide = widen(l.a, l.b, 0.3)
+            lay(spillImg, wide[0], wide[1], n[0] * v.s, n[1] * v.s, 0, WINDOW_SKY * (0.4 + 0.6 * l.w.open), clamp(0.4 * l.sky * e.k, 0, 0.45))
+            glow(l.mid[0] + n[0] * l.len * 0.1, l.mid[1] + n[1] * l.len * 0.1, l.len * 0.7 + 1.2 * v.s, col.light, 0.1 * l.sky * e.k)
+          }
+          if (!l.direct) continue
+          lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
+          shafts(l, 1)
+          // what the lit floor throws back into the room
+          glow(l.mid[0] + l.lx * (l.near + l.deep * 0.45), l.mid[1] + l.ly * (l.near + l.deep * 0.45), (2.2 + 0.45 * l.deep) * v.s + l.len * 0.5, tint, 0.085 * l.direct * e.k)
+          brightest = Math.max(brightest, l.direct)
+          blooms.push({ x: l.mid[0], y: l.mid[1], len: l.len, turn: Math.atan2(l.b[1] - l.a[1], l.b[0] - l.a[0]), a: l.direct * (0.4 + 0.6 * l.w.open), tint })
+        }
+        // a room with direct light is a touch brighter as a whole
+        if (brightest > 0) { c.globalAlpha = 0.04 * brightest * e.k; c.fillStyle = tint; c.fillRect(box.x, box.y, box.w, box.h) }
+        c.restore()
+      }
+      // 1b) Open doors: both ways – the brightness of the room behind the door spills in (diffuse), and direct light
+      //     that travels towards the door continues behind it, clipped to the door swept along the light.
+      for (const d of lights.length ? indoor.doors || [] : []) {
+        const a = at(d.a), b = at(d.b), wide = widen(a, b, 0.25), th = { a, b, n: d.n, level: 0, beams: [] }
+        for (const way of [0, 1]) {
+          const from = d.rooms[way], n = way ? d.n : [-d.n[0], -d.n[1]], level = bright[from] || 0     // n points into the room the light enters
+          const beams = (rooms[from] || []).filter(l => l.direct && l.lx * n[0] + l.ly * n[1] > 0)
+          if ((level <= 0.03 && !beams.length) || !enter(d.rooms[1 - way])) continue
+          if (level > 0.03) lay(spillImg || (spillImg = paneImg['spill|' + col.light] || (paneImg['spill|' + col.light] = spill(col.light))), wide[0], wide[1], n[0] * v.s, n[1] * v.s, 0, DOOR_REACH, clamp(0.3 * level * e.k, 0, 0.3))
+          for (const l of beams) {
+            const reach = l.near + l.deep + 1
+            c.save()
+            c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(b[0] + l.lx * reach, b[1] + l.ly * reach); c.lineTo(a[0] + l.lx * reach, a[1] + l.ly * reach)
+            c.closePath(); c.clip()
+            lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
+            c.restore()
+          }
+          c.restore()
+          th.level = Math.max(th.level, level); th.beams = th.beams.concat(beams)
+        }
+        if (th.level > 0.03 || th.beams.length) { thresholds.push(th); stats.doors++ }
       }
       // 2) Sound: rings spread from every speaker that plays and fade on their way. How strong a ring is was decided by
-      //    the beat at the moment it left the speaker – so the rings differ and the speaker itself pulses with it.
-      const beat = time => 0.4 + 0.6 * Math.pow(Math.abs(Math.sin(time * Math.PI * SOUND_BPM / 60)), 2.2) * (0.75 + 0.25 * Math.sin(time * 0.9))
+      //    the beat at the moment it left the speaker – so the rings differ and the speaker itself pulses with it. A
+      //    quiet speaker sends few, small, slow rings; a loud one more and further – calm in both cases (since 0.27.1).
       for (const s of indoor.speakers) {
         if (!enter(s.room)) continue
-        const mid = at([s.x, s.y]), r0 = s.r * v.s + 2, reach = r0 + (1.5 + 2.7 * s.level) * v.s
-        glow(mid[0], mid[1], r0 * (1.5 + 0.5 * beat(t)), col.sound, 0.2 * beat(t) * e.k)
+        const loudness = clamp((s.level - 0.2) / 0.8, 0, 1), between = pair => pair[0] + (pair[1] - pair[0]) * loudness
+        const period = between(SOUND_PERIOD), count = Math.round(between(SOUND_RINGS)), bpm = between(SOUND_BPM)
+        const beat = time => 0.55 + 0.45 * Math.pow(Math.abs(Math.sin(time * Math.PI * bpm / 60)), 2) * (0.8 + 0.2 * Math.sin(time * 0.7))
+        const mid = at([s.x, s.y]), r0 = s.r * v.s + 2, reach = r0 + between(SOUND_REACH) * v.s
+        glow(mid[0], mid[1], r0 * (1.5 + 0.4 * beat(t)), col.sound, 0.2 * beat(t) * e.k)
         c.strokeStyle = col.sound
-        for (let i = 0; i < SOUND_RINGS; i++) {
-          const p = (t / SOUND_PERIOD + i / SOUND_RINGS) % 1, loud = beat(t - p * SOUND_PERIOD)
-          const a = Math.min(1, p / 0.1) * Math.pow(1 - p, 1.6) * (0.35 + 0.65 * loud) * (0.5 + 0.5 * s.level)
+        for (let i = 0; i < count; i++) {
+          const p = (t / period + i / count) % 1, loud = beat(t - p * period)
+          const a = Math.min(1, p / 0.12) * Math.pow(1 - p, 1.6) * (0.35 + 0.65 * loud) * (0.5 + 0.5 * s.level)
           if (a < 0.01) continue
-          c.globalAlpha = 0.62 * a * e.k; c.lineWidth = 0.9 + 1.5 * loud * (1 - 0.5 * p)
+          c.globalAlpha = 0.62 * a * e.k; c.lineWidth = 0.9 + 1.3 * loud * (1 - 0.5 * p)
           c.beginPath(); c.arc(mid[0], mid[1], r0 + p * (reach - r0), 0, TAU); c.stroke()
         }
         c.restore()
@@ -1428,11 +1725,21 @@
       }
       // the walls stay free: the rooms reach to the middle of their walls
       c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.strokeStyle = '#000'
-      c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = mask.wall || 6
+      c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = wall
       c.beginPath()
       for (const p of mask.walls || []) { if (p.length < 2) continue; c.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) c.lineTo(p[i][0], p[i][1]) }
       c.stroke()
       c.globalCompositeOperation = 'source-over'
+      // … except in an open door that light passes: its threshold gets the light of both sides back
+      for (const th of thresholds) {
+        const nx = th.n[0] * (wall / 2 + 0.5), ny = th.n[1] * (wall / 2 + 0.5)
+        c.save()
+        c.beginPath(); c.moveTo(th.a[0] + nx, th.a[1] + ny); c.lineTo(th.b[0] + nx, th.b[1] + ny); c.lineTo(th.b[0] - nx, th.b[1] - ny); c.lineTo(th.a[0] - nx, th.a[1] - ny)
+        c.closePath(); c.clip()
+        if (th.level > 0.03) { c.globalAlpha = clamp(0.22 * th.level * e.k, 0, 0.25); c.fillStyle = col.light; c.fillRect(box.x, box.y, box.w, box.h) }
+        for (const l of th.beams) lay(patchImg, l.a, l.b, l.lx, l.ly, l.near, l.deep, clamp(WINDOW_LIGHT * l.direct * e.k, 0, 0.5))
+        c.restore()
+      }
       // 3) Bloom: a window with direct light glows itself – a flat halo along the glass, on top of the wall
       for (const b of blooms) {
         c.save()
@@ -1441,6 +1748,29 @@
         c.restore()
       }
       c.restore()
+    }
+    /* Walls that give off heat (fx.heat): the outer edges of the rooms that face the sun, in pixels – x, y = start,
+       tx, ty = unit vector along the edge, nx, ny = outwards, len; total = their length together. An edge is outside if
+       no room lies just beyond it; edges shorter than `least` pixels are left out (on the pieces of a curved wall the
+       lines would shrink to squiggles). Remembered per outline and direction of the sun (dir = unit vector to the sun). */
+    function hotWalls(mask, dir, least) {
+      const key = Math.round(Math.atan2(dir[1], dir[0]) * 30) + '|' + Math.round(least)
+      if (hot.mask === mask && hot.key === key) return hot
+      const polys = (mask.polys || []).filter(p => p.length >= 3), probe = (mask.wall || 6) / 2 + 4, edges = []
+      let total = 0
+      for (const p of polys) {
+        for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+          const len = Math.hypot(p[i][0] - p[j][0], p[i][1] - p[j][1])
+          if (len < least) continue
+          const tx = (p[i][0] - p[j][0]) / len, ty = (p[i][1] - p[j][1]) / len, mx = (p[i][0] + p[j][0]) / 2, my = (p[i][1] + p[j][1]) / 2
+          for (const side of [-1, 1]) {
+            const nx = -ty * side, ny = tx * side
+            if (nx * dir[0] + ny * dir[1] < 0.2 || polys.some(q => within(q, mx + nx * probe, my + ny * probe))) continue
+            edges.push({ x: p[j][0], y: p[j][1], tx, ty, nx, ny, len }); total += len
+          }
+        }
+      }
+      return (hot = { mask, key, edges, total })
     }
     /* Shadow shaft of the building in the sun rays: light that hits the house does not continue behind it. The rooms of
        the floor shown are swept along the light (ax, ay) beyond the frame – the room itself plus one parallelogram per
@@ -1502,7 +1832,7 @@
     // calm tick is enough. Stars only count in darkness, sun rays only while the sun shines.
     const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor || sounding())
     const animated = () => !!fx && !REDUCED && !!(quick() || clouds.length || banks.length || (stars.length && darkNow > 0.15) || glints.length ||
-      (rays.length && sunUp) || fx.thunder)
+      ((rays.length || shimmers.length) && sunUp) || fx.thunder)
     const running = () => alive && !held && animated() && visible && !document.hidden
     // after every frame: average delay and cost; every CHECK_EVERY frames decide whether a step back is needed
     function govern(gap, interval, spent) {
