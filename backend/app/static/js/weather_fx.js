@@ -25,12 +25,13 @@
      getShift() = {k, x, y} or null: how the painted plan is moved and scaled right now during a gesture
      getIndoor() = {windows: [{a, b, n, room, open, glow}], doors: [{a, b, n, rooms}],
                   speakers: [{x, y, r, room, level}], lamps: [{id, x, y, room, shape, colors, level, effect, glow}],
-                  bubbles: [{x, y, r}], symbols: [{x, y, key, rot, kx, ky}]} or null, in plan units:
+                  bubbles: [{x, y, r}], symbols: [{x, y, key, rot, m, ax, ay}]} or null, in plan units:
                   a window from a to b, n = unit vector into its room, room = index into getMask().polys, open = share
                   of light its shutter lets through, glow = {img, x, y, w, h}: how its light spreads through the home
                   (opacity = share of the light that arrives, through open doors too); a door between two rooms that
                   light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1);
-                  a lamp that shines (since 0.28): shape = {r} of its bubble or {rot, lw, lh, round} of its plan symbol,
+                  a lamp that shines (since 0.28): shape = {r} of its bubble or {rot, lw, lh, round, key, m, ax, ay} of
+                  its plan symbol (m = scale, ax/ay = stretch of HO.planSymbolShape – since 0.29, the halo follows it),
                   colors = [[r, g, b], …] (several: a gradient or the members of a group), level = brightness 0…1,
                   effect = running light effect or null, glow as at a window; bubbles and symbols stay free at the end
    fx (from /api/weather) = {kind, cloud, rain, snow, fog, wind, gust, wind_dir, thunder, storm, hail, frost,
@@ -184,38 +185,21 @@
   const rnd = (a, b) => a + Math.random() * (b - a)
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
-  const symbolShapes = {}   // outlines of the plan symbols by key (symbolShape)
-  /* The outline of a plan symbol as canvas paths (since 0.28), to punch it out of the inside layer: bubble and symbol
-     always lie on top. Read once per key from its drawing in floorplan_symbols.js (rect, circle, path – the only
-     elements it uses, a path may carry rotate(a 24 24)); `fill` = a body or an ink mark, a line (class l) is only
-     stroked. null without Path2D (the caller then punches the box of the symbol). */
-  function symbolShape(key) {
-    if (Object.prototype.hasOwnProperty.call(symbolShapes, key)) return symbolShapes[key]
-    const sym = HO.planSymbols && HO.planSymbols[key]
-    let list = null
-    if (sym && typeof Path2D === 'function') {
-      try {
-        list = []
-        const re = /<(rect|circle|path)\b([^>]*)\/>/g
-        let m
-        while ((m = re.exec(sym.svg))) {
-          const a = {}
-          m[2].replace(/([a-z-]+)="([^"]*)"/g, (all, k, v) => { a[k] = v; return all })
-          let p
-          if (m[1] === 'path') p = new Path2D(a.d || '')
-          else if (m[1] === 'circle') { p = new Path2D(); p.arc(+a.cx || 0, +a.cy || 0, +a.r || 0, 0, TAU) }
-          else {
-            const x = +a.x || 0, y = +a.y || 0, w = +a.width || 0, h = +a.height || 0, r = Math.min(+a.rx || 0, w / 2, h / 2)
-            p = new Path2D()
-            p.moveTo(x + r, y); p.arcTo(x + w, y, x + w, y + h, r); p.arcTo(x + w, y + h, x, y + h, r)
-            p.arcTo(x, y + h, x, y, r); p.arcTo(x, y, x + w, y, r); p.closePath()
-          }
-          const turn = /rotate\(\s*(-?[\d.]+)/.exec(a.transform || '')
-          list.push({ p, fill: !/\bl\b/.test(a.class || ''), rot: turn ? +turn[1] * Math.PI / 180 : 0 })
-        }
-      } catch (e) { list = null }   // a browser that cannot read the path: the box of the symbol is punched instead
+  /* The outline of a plan symbol as canvas paths (since 0.28), to punch it out of the inside layer – bubble and symbol
+     always lie on top – and to lay the halo of a lamp along it. Since 0.29 it comes from HO.planSymbolShape (the
+     symbol in its smart stretch, every part one path; floorplan_symbols.js) and is kept on that shape, which is
+     remembered per key and stretch: [{p: Path2D, fill, body}] – `fill` = a body, face or ink mark, a line (class l)
+     is only stroked; `body` = a part without a class (the outline the halo follows). null without Path2D or for a drawing it cannot read (the caller then uses the box of the symbol). */
+  function symbolShape(key, ax, ay) {
+    const shape = HO.planSymbolShape && HO.planSymbolShape(key, ax, ay)
+    if (!shape) return null
+    if (shape.paths === undefined) {
+      shape.paths = null
+      if (shape.parts && typeof Path2D === 'function') {
+        try { shape.paths = shape.parts.map(part => ({ p: new Path2D(part.d), fill: part.cls !== 'l', body: !part.cls })) } catch (e) { shape.paths = null }   // box instead
+      }
     }
-    return (symbolShapes[key] = list)
+    return shape.paths
   }
   // A small number from a text that stays the same (phase of the flicker of a lamp).
   const phaseOf = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 9973; return h / 9973 * TAU }
@@ -1848,18 +1832,34 @@
       }
       /* The halo at the edge of the bubble or symbol – strokes around its outline, wider ones fainter (the inner half
          lies under the symbol, which is left free at the end). Drawn once per colour, shape and scale into an image of
-         its own, in the turned frame of the symbol; every frame only lays it on (since 0.28: no strokes per frame). */
+         its own, in the turned frame of the symbol; every frame only lays it on (since 0.28: no strokes per frame).
+         Since 0.29 a plan symbol gets it along its own bodies (symbolShape) – a light bar along its slot, a round lamp
+         along its circle; only without Path2D the box (rounded) or the ellipse of a round symbol. */
       const haloOf = m => {
         const l = m.lamp, s = l.shape, bubble = s.r != null, wide = LAMP_HALO_W * v.s
         const w = (bubble ? s.r : s.lw) * v.s, h = (bubble ? s.r : s.lh) * v.s, pad = wide + 2
+        const outline = !bubble && s.key && s.m > 0 ? symbolShape(s.key, s.ax, s.ay) : null, sc = outline ? s.m * v.s : 1
         const cols = m.cols.map(col => col.map(Math.round).join(',')).join('|')
-        const key = [cols, Math.round(w * 2), Math.round(h * 2), Math.round(wide * 2), bubble ? 'b' : s.round ? 'o' : 'r', dpr].join('/')
+        const form = bubble ? 'b' : outline ? [s.key, (s.ax || 1).toFixed(3), (s.ay || 1).toFixed(3)].join(',') : s.round ? 'o' : 'r'
+        const key = [cols, Math.round(w * 2), Math.round(h * 2), Math.round(wide * 2), form, dpr].join('/')
         const cw = 2 * (w + pad), ch = 2 * (h + pad)
         if (m.halo && m.haloKey === key) return { img: m.halo, w: cw, h: ch }
         const cv = m.halo || (m.halo = document.createElement('canvas'))
         cv.width = Math.ceil(cw * dpr); cv.height = Math.ceil(ch * dpr)
         const g = cv.getContext('2d')
         g.setTransform(dpr, 0, 0, dpr, cw / 2 * dpr, ch / 2 * dpr)
+        g.lineJoin = 'round'; g.lineCap = 'round'; g.globalAlpha = 0.17
+        if (outline) {
+          // in the frame of the drawing: the colours along its length, the widths in pixels
+          g.scale(sc, sc); g.translate(-24, -24)
+          g.strokeStyle = paint(g, m.cols, [24 - w / sc, 24], [24 + w / sc, 24])
+          for (let i = 6; i >= 1; i--) {
+            g.lineWidth = 2 * wide * Math.pow(i / 6, 1.4) / sc
+            for (const part of outline) if (part.body) g.stroke(part.p)
+          }
+          m.haloKey = key
+          return { img: cv, w: cw, h: ch }
+        }
         g.beginPath()
         if (bubble) g.arc(0, 0, w, 0, TAU)
         else if (s.round && g.ellipse) g.ellipse(0, 0, w, h, 0, 0, TAU)
@@ -1870,7 +1870,6 @@
         // the colours along the axis (axisOf), here relative to the middle and before the turn
         const H = (s.r + LAMP_HALO_W) * v.s
         g.strokeStyle = bubble ? paint(g, m.cols, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174]) : paint(g, m.cols, [-w, 0], [w, 0])
-        g.lineJoin = 'round'; g.globalAlpha = 0.17
         for (let i = 6; i >= 1; i--) { g.lineWidth = 2 * wide * Math.pow(i / 6, 1.4); g.stroke() }
         m.haloKey = key
         return { img: cv, w: cw, h: ch }
@@ -1970,19 +1969,21 @@
         c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.fillStyle = '#000'; c.strokeStyle = '#000'
         c.lineJoin = 'round'; c.lineCap = 'round'
         for (const s of indoor.symbols) {
-          const p = at([s.x, s.y]), sx = s.kx * v.s, sy = s.ky * v.s, parts = symbolShape(s.key), sym = HO.planSymbols && HO.planSymbols[s.key]
-          if (!sym || !(sx > 0) || !(sy > 0)) continue
+          const p = at([s.x, s.y]), sc = s.m * v.s, sym = HO.planSymbols && HO.planSymbols[s.key]
+          if (!sym || !(sc > 0)) continue
+          const parts = symbolShape(s.key, s.ax, s.ay)
           c.save()
           c.translate(p[0], p[1]); c.rotate((s.rot || 0) * Math.PI / 180)
           if (parts) {
-            c.scale(sx, sy); c.translate(-24, -24); c.lineWidth = edge / Math.sqrt(sx * sy)
+            c.scale(sc, sc); c.translate(-24, -24); c.lineWidth = edge / sc
             for (const part of parts) {
-              if (part.rot) { c.save(); c.translate(24, 24); c.rotate(part.rot); c.translate(-24, -24) }
               if (part.fill) c.fill(part.p)
               c.stroke(part.p)
-              if (part.rot) c.restore()
             }
-          } else c.fillRect(-sym.w * sx / 2 - edge, -sym.h * sy / 2 - edge, sym.w * sx + 2 * edge, sym.h * sy + 2 * edge)
+          } else {
+            const w = sym.w * (s.ax || 1) * sc, h = sym.h * (s.ay || 1) * sc
+            c.fillRect(-w / 2 - edge, -h / 2 - edge, w + 2 * edge, h + 2 * edge)
+          }
           c.restore()
           stats.symbols++
         }

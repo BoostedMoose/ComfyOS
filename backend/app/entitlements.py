@@ -154,8 +154,9 @@ def cap(key: str, value: int) -> int:
 # ---------------------------------------------------------------- Content (monotonic: never take anything away)
 def _appearance(plan: dict) -> int:
     """Counts what in the floor plan belongs to the Pro feature "Darstellung": devices shown as a plan symbol (only
-    those have a size of their own)."""
-    return sum(1 for f in floorplan_store.floors(plan) for d in (f.get("devices") or {}).values() if d.get("furniture"))
+    those have a size of their own) and – since 0.29 – loads shown as one; a load as a bubble is Basic."""
+    return sum(1 for f in floorplan_store.floors(plan)
+               for d in list((f.get("devices") or {}).values()) + list(f.get("loads") or []) if d.get("furniture"))
 
 
 def _elements(plan: dict) -> int:

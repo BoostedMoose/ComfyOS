@@ -95,6 +95,11 @@ with TestClient(main.app) as client:
     grp = {"id": "g1", "name": "Couch", "x": 6, "y": 6, "members": ["dev:1", "dev:2"]}
     saved = code(client.put("/api/floorplan", json=plan(rooms=6, groups=[grp])), 200)
     assert saved["groups"][0]["members"] == ["dev:1", "dev:2"] and "dev:1" not in saved["devices"], saved
+    # loads ("Verbraucher", since 0.29): as a bubble Basic, as a plan symbol part of "Darstellung" like a device
+    lamp = {"id": "l1", "x": 6, "y": 6, "kind": "lamp", "device_id": "dev:2"}
+    with_load = code(client.put("/api/floorplan", json={**plan(rooms=6), "loads": [lamp]}), 200)
+    assert with_load["loads"] == [lamp], with_load
+    pro_required(client.put("/api/floorplan", json={**plan(rooms=6), "loads": [{**lamp, "furniture": "floor-lamp"}]}), "custom_appearance")
     # Schatten nach Sonnenstand + Nordrichtung: Basic, Standard an/0°, Grad begrenzt
     assert saved["shadow"] is True and saved["north"] == 0, saved
     sh = code(client.put("/api/floorplan", json={**plan(rooms=6), "north": 725, "shadow": False}), 200)
@@ -121,7 +126,7 @@ with TestClient(main.app) as client:
     room_up = {**upper, "rooms": [{"id": "ro", "name": "Oben", "x": 5, "y": 5}]}
     pro_required(client.put("/api/floorplan", json={**stock, "floors": [room_up]}), "floorplan_rooms")
     assert code(client.put("/api/floorplan", json=stock), 200)["floors"] == [], "deleting a floor must always work"
-    print("3 floor plan: 6 rooms/doors/groups free, Pro elements 402, existing content stays editable")
+    print("3 floor plan: 6 rooms/doors/groups/loads as bubbles free, Pro elements 402, existing content stays editable")
 
     # 4) Verlauf: Basic sieht 7 Tage (Daten bleiben 13 Monate)
     seen = []

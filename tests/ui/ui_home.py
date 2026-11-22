@@ -8,7 +8,8 @@ wind lines move in a flow field around the building (small grid, building as an 
 halo lies around the building instead of the cast shadow; with prefers-reduced-motion only one calm image is created
 without animation frames (no requestAnimationFrame of the module); the button "Wetter" switches the effects. Since
 0.20.1: wind arrow on the floor plan, leaves from 15 km/h, puddles and ripples in rain; the page keeps its scroll
-position when the room tiles are rewritten.
+position when the room tiles are rewritten. Since 0.29 a load ("Verbraucher") on a device that is on is drawn as on and
+shines with "Effekte".
 Plus the official weather warning (DWD as a mock): hint above the main tile with an open window, details,
 hiding. The frame of the floor plan reaches from tile edge to tile edge; scenes and key figures are
 below, the overall state in the tile "Geräte online". Screenshots in tests/shots/.
@@ -321,6 +322,26 @@ def run(p, engine, name, reduced=False, **ctx_args):
         page.wait_for_timeout(700)
         if page.locator("#fpHost canvas.fp-fx").count() or page.evaluate("() => localStorage.getItem('ho.fpEffects')") != "0":
             problems.append(f"{name}: the button „Effekte“ does not switch off")
+    # loads (since 0.29): a lamp without intelligence on a device that is on is drawn as on and shines with "Effekte" –
+    # in the kitchen, hanging on the first device of the world that is on and can be switched ("Hue Decke")
+    carrier = page.evaluate("""() => { const d = (HO.state.overview.devices || []).find(x => x.online && x.on === true && HO.caps.has(x, 'on', true))
+      return d ? d.id : null }""")
+    if not carrier:
+        problems.append(f"{name}: no device of the test world is on – the load cannot be checked")
+    else:
+        page.evaluate("() => localStorage.setItem('ho.fpEffects', '1')")
+        page.evaluate("""async id => { const p = Object.assign({}, HO.state.overview.floorplan,
+            {loads: [{id: 'l1', x: 9.5, y: 5, kind: 'lamp', device_id: id, tone: 'cold', name: 'Stehlampe'}]})
+          HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}); HO.go('home', true) }""", carrier)
+        try:
+            page.wait_for_selector('#fpHost [data-kind="load"].on', timeout=8000)
+            page.wait_for_function("() => HO.weatherFx.stats.lamps >= 1", timeout=6000)
+        except Exception:
+            problems.append(f"{name}: the load on a device that is on is not drawn as on or does not shine "
+                            f"({page.locator('#fpHost [data-kind=load]').count()} drawn)")
+        page.evaluate("""async () => { const p = Object.assign({}, HO.state.overview.floorplan, {loads: []})
+          HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}); HO.go('home', true) }""")
+        page.wait_for_selector("#fpHost .fp-wrap svg .fp-room")
     page.evaluate("() => localStorage.removeItem('ho.fpEffects')")
     page.evaluate("""async () => { const p = Object.assign({}, HO.state.overview.floorplan, {fx: true})
       HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}) }""")

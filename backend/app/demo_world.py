@@ -359,6 +359,9 @@ PLAN: dict[str, Any] = {
     "groups": [{"id": "g1", "name": "Licht Sofa", "x": 4.6, "y": 8.4, "members": [_id("decke"), _id("strip")]}],
     "decks": [{"id": "d1", "pts": [[12, 15], [19, 15], [19, 17.5], [12, 17.5], [12, 15]]}],
     "stairs": [{"id": "s1", "a": [20.2, 8.5], "b": [16.6, 8.5], "width": 1.6}],   # in the hallway, up to the studio
+    # a load (since 0.29): a reading lamp without intelligence on the plug of the desk – it glows while that one is on
+    "loads": [{"id": "l1", "x": 25.4, "y": 4.6, "kind": "lamp", "device_id": _id("pc"), "name": "Leselampe", "tone": "neutral",
+               "brightness": 70, "furniture": "floor-lamp", "size": 0.7, "rot": 315}],
     "floor_id": "wohnung", "floor_name": "Wohnung",
     "floors": [{
         "id": "dach", "name": "Dachgeschoss", "level": 1,

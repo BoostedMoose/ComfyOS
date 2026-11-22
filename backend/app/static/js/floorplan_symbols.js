@@ -89,4 +89,155 @@
     const symbol = HO.planSymbols[key]
     return symbol ? `<svg class="fp-sym-pic" viewBox="0 0 48 48" aria-hidden="true"><g class="fp-sym">${symbol.svg}</g></svg>` : ''
   }
+
+  /* Smart stretching (since 0.29): a plan symbol drawn wider or taller than its drawing is never distorted – a light
+     bar (a slot) grows longer and keeps its round ends, the dots of a sound bar spread along it, the cone of a speaker
+     stays round. Before, the drawing was scaled on one axis and every rounded end became an ellipse.
+     - The symbol is drawn at one scale for both axes (the smaller one, see floorplan.js symbolBox); along the other axis
+       extra length is laid in: `ax`/`ay` = how many times wider/taller than drawn (≥ 1, one of them 1).
+     - On that axis whatever lies within `cap` of either end (half the shorter side of the symbol) only moves outwards, the
+       middle between the two stretches. A symbol as wide as it is tall has no middle: it opens at its centre line.
+     - A rect keeps the radius of its corners, a circle stays a circle and only moves – unless it is the body of the
+       symbol and spans the stretch (a round ceiling lamp, a round table): then it becomes a slot with round ends.
+     - A path moves every point; an arc keeps its radius wherever nothing stretches.
+     HO.planSymbolShape(key, ax, ay) → { parts: [{d, cls}], svg, w, h } in units of the drawing (centre 24, 24; w/h = the
+     extent it covers now) or null for an unknown key. Every part is a path (`d` absolute, `cls` the class of the
+     drawing) – the same outline serves the symbol, its shadow (floorplan.js) and the effects that leave it free
+     (weather_fx.js). A drawing that cannot be read is stretched as before (`parts` null). Remembered per key and stretch. */
+  const shapes = {}
+  let shapeCount = 0
+  const fmt = v => String(Math.round(v * 100) / 100)
+
+  // One axis of the drawing, relative to its centre: the ends (within `cap` of the edge at `half`) move outwards by the
+  // extra length, the middle between them stretches to take it; without a middle the drawing opens at the centre.
+  function axisMap(half, cap, stretch) {
+    const extra = half * (stretch - 1), inner = half - cap
+    if (!(extra > 1e-6)) return t => t
+    if (inner < 0.5) return t => t > 1e-6 ? t + extra : t < -1e-6 ? t - extra : t
+    const slope = (inner + extra) / inner
+    return t => Math.abs(t) <= inner ? t * slope : t + (t > 0 ? extra : -extra)
+  }
+
+  // The elements of a drawing: tag, attributes, class and the turn of a `rotate(a 24 24)`. Null if the drawing holds
+  // anything but rect, circle and path.
+  function readElements(svg) {
+    const list = [], re = /<(rect|circle|path)\b([^>]*)\/>/g
+    let m
+    while ((m = re.exec(svg))) {
+      const a = {}
+      m[2].replace(/([a-z-]+)="([^"]*)"/g, (all, k, v) => { a[k] = v; return all })
+      const turn = /rotate\(\s*(-?[\d.]+)/.exec(a.transform || '')
+      list.push({ tag: m[1], a, cls: a.class || '', turn: turn ? +turn[1] : 0 })
+    }
+    return list.length === (svg.match(/</g) || []).length ? list : null
+  }
+
+  // Path data as absolute segments [{c: 'M'|'L'|'C'|'Q'|'A'|'Z', p: [numbers]}] (H and V become L) – null for a
+  // command the symbols do not use or a broken path.
+  function absPath(d) {
+    const tok = String(d).match(/[a-zA-Z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) || [], out = []
+    const NEED = { M: 2, L: 2, H: 1, V: 1, C: 6, Q: 4, A: 7 }
+    let i = 0, cmd = '', x = 0, y = 0, x0 = 0, y0 = 0
+    while (i < tok.length) {
+      if (/^[a-zA-Z]$/.test(tok[i])) cmd = tok[i++]
+      else if (!cmd || cmd === 'z' || cmd === 'Z') return null
+      const C = cmd.toUpperCase(), rel = cmd !== C, bx = rel ? x : 0, by = rel ? y : 0
+      if (C === 'Z') { out.push({ c: 'Z', p: [] }); x = x0; y = y0; continue }
+      const need = NEED[C]
+      if (!need || i + need > tok.length) return null
+      const v = tok.slice(i, i + need).map(Number)
+      i += need
+      if (v.some(q => !isFinite(q))) return null
+      if (C === 'M') { x = bx + v[0]; y = by + v[1]; x0 = x; y0 = y; out.push({ c: 'M', p: [x, y] }); cmd = rel ? 'l' : 'L' }
+      else if (C === 'L') { x = bx + v[0]; y = by + v[1]; out.push({ c: 'L', p: [x, y] }) }
+      else if (C === 'H') { x = bx + v[0]; out.push({ c: 'L', p: [x, y] }) }
+      else if (C === 'V') { y = by + v[0]; out.push({ c: 'L', p: [x, y] }) }
+      else if (C === 'C') { out.push({ c: 'C', p: [bx + v[0], by + v[1], bx + v[2], by + v[3], bx + v[4], by + v[5]] }); x = bx + v[4]; y = by + v[5] }
+      else if (C === 'Q') { out.push({ c: 'Q', p: [bx + v[0], by + v[1], bx + v[2], by + v[3]] }); x = bx + v[2]; y = by + v[3] }
+      else { out.push({ c: 'A', p: [v[0], v[1], v[2], v[3], v[4], bx + v[5], by + v[6]] }); x = bx + v[5]; y = by + v[6] }
+    }
+    return out
+  }
+
+  // A rounded rectangle as path data (the corners keep their radius).
+  function rectPath(x0, y0, x1, y1, r) {
+    r = Math.min(r, (x1 - x0) / 2, (y1 - y0) / 2)
+    if (!(r > 0.01)) return `M${fmt(x0)} ${fmt(y0)}H${fmt(x1)}V${fmt(y1)}H${fmt(x0)}Z`
+    const arc = `A${fmt(r)} ${fmt(r)} 0 0 1 `
+    return `M${fmt(x0 + r)} ${fmt(y0)}H${fmt(x1 - r)}${arc}${fmt(x1)} ${fmt(y0 + r)}V${fmt(y1 - r)}${arc}${fmt(x1 - r)} ${fmt(y1)}` +
+      `H${fmt(x0 + r)}${arc}${fmt(x0)} ${fmt(y1 - r)}V${fmt(y0 + r)}${arc}${fmt(x0 + r)} ${fmt(y0)}Z`
+  }
+  const circlePath = (cx, cy, r) => `M${fmt(cx - r)} ${fmt(cy)}A${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(cx + r)} ${fmt(cy)}A${fmt(r)} ${fmt(r)} 0 1 0 ${fmt(cx - r)} ${fmt(cy)}Z`
+
+  // Absolute segments as path data, every point turned by `turn` degrees about the centre and then moved by `place`; an
+  // arc takes the stretch its two ends got (none at the ends of a symbol, so a rounded end stays round).
+  function pathData(segs, place, turn) {
+    const a = turn * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a)
+    const spun = (x, y) => turn ? [24 + (x - 24) * ca - (y - 24) * sa, 24 + (x - 24) * sa + (y - 24) * ca] : [x, y]
+    let out = '', px = 0, py = 0, sx = 0, sy = 0
+    for (const g of segs) {
+      const p = g.p
+      if (g.c === 'Z') { out += 'Z'; px = sx; py = sy; continue }
+      if (g.c === 'A') {
+        const from = spun(px, py), to = spun(p[5], p[6]), q0 = place(from[0], from[1]), q1 = place(to[0], to[1])
+        const kx = Math.abs(to[0] - from[0]) > 1e-6 ? Math.abs(q1[0] - q0[0]) / Math.abs(to[0] - from[0]) : 1
+        const ky = Math.abs(to[1] - from[1]) > 1e-6 ? Math.abs(q1[1] - q0[1]) / Math.abs(to[1] - from[1]) : 1
+        out += `A${fmt(p[0] * kx)} ${fmt(p[1] * ky)} ${fmt(p[2] + turn)} ${p[3] ? 1 : 0} ${p[4] ? 1 : 0} ${fmt(q1[0])} ${fmt(q1[1])}`
+      } else {
+        const pts = []
+        for (let i = 0; i < p.length; i += 2) { const s = spun(p[i], p[i + 1]), q = place(s[0], s[1]); pts.push(fmt(q[0]) + ' ' + fmt(q[1])) }
+        out += g.c + pts.join(' ')
+      }
+      px = p[p.length - 2]; py = p[p.length - 1]
+      if (g.c === 'M') { sx = px; sy = py }
+    }
+    return out
+  }
+
+  // The parts of a drawing laid out for a stretch (see above); null if the drawing cannot be read.
+  function stretchedParts(sym, ax, ay) {
+    const elements = readElements(sym.svg)
+    if (!elements) return null
+    const cap = Math.min(sym.w, sym.h) / 2, fx = axisMap(sym.w / 2, cap, ax), fy = axisMap(sym.h / 2, cap, ay)
+    const place = (x, y) => [24 + fx(x - 24), 24 + fy(y - 24)]
+    const parts = []
+    for (const el of elements) {
+      const a = el.a
+      let d
+      if (el.tag === 'rect') {
+        const x = +a.x || 0, y = +a.y || 0, w = +a.width || 0, h = +a.height || 0, r = +a.rx || 0
+        if (el.turn) { const segs = absPath(rectPath(x, y, x + w, y + h, r)); d = segs && pathData(segs, place, el.turn) }
+        else { const p0 = place(x, y), p1 = place(x + w, y + h); d = rectPath(p0[0], p0[1], p1[0], p1[1], r) }
+      } else if (el.tag === 'circle') {
+        const r = +a.r || 0, t = el.turn * Math.PI / 180, ox = (+a.cx || 0) - 24, oy = (+a.cy || 0) - 24
+        const cx = 24 + ox * Math.cos(t) - oy * Math.sin(t), cy = 24 + ox * Math.sin(t) + oy * Math.cos(t)
+        const p0 = place(cx - r, cy - r), p1 = place(cx + r, cy + r), c = place(cx, cy)
+        // the body of the symbol across the stretch (a round lamp, a round table) becomes a slot, every other circle moves
+        const body = !el.cls && ((ax > 1 && Math.abs(cx - 24) < r && 2 * r >= sym.w / 2) || (ay > 1 && Math.abs(cy - 24) < r && 2 * r >= sym.h / 2))
+        d = body && (p1[0] - p0[0] > 2 * r + 0.01 || p1[1] - p0[1] > 2 * r + 0.01) ? rectPath(p0[0], p0[1], p1[0], p1[1], r) : circlePath(c[0], c[1], r)
+      } else {
+        const segs = absPath(a.d || '')
+        d = segs && pathData(segs, place, el.turn)
+      }
+      if (!d) return null
+      parts.push({ d, cls: el.cls })
+    }
+    return parts
+  }
+
+  // The shape of a plan symbol for a stretch (described above the helpers): remembered per key and stretch.
+  HO.planSymbolShape = (key, ax, ay) => {
+    const sym = HO.planSymbols[key]
+    if (!sym) return null
+    ax = Math.max(1, Number(ax) || 1); ay = Math.max(1, Number(ay) || 1)
+    const id = key + '|' + ax.toFixed(3) + '|' + ay.toFixed(3)
+    if (shapes[id]) return shapes[id]
+    if (shapeCount > 300) { for (const k of Object.keys(shapes)) delete shapes[k]; shapeCount = 0 }   // a long editing session
+    let parts = null
+    try { parts = stretchedParts(sym, ax, ay) } catch (e) { parts = null }   // a drawing it cannot read: stretched plainly
+    const svg = parts ? parts.map(p => `<path${p.cls ? ` class="${p.cls}"` : ''} d="${p.d}"/>`).join('')
+      : `<g transform="translate(24 24) scale(${ax} ${ay}) translate(-24 -24)">${sym.svg}</g>`
+    shapeCount++
+    return (shapes[id] = { parts, svg, w: sym.w * ax, h: sym.h * ay })
+  }
 })(window.HO)

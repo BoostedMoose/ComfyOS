@@ -4,6 +4,64 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.29 – loads ("Verbraucher"), smart stretching, free turn and a true shadow of the plan symbols
+
+- **Smart stretching (wish of the operator: a light bar drawn wider got elliptical ends):** `floorplan_symbols.js`
+  `HO.planSymbolShape(key, ax, ay)` lays a symbol out anew instead of scaling it on one axis. `symbolBox` returns the
+  one scale `m` = min(k, kx) and the stretch `ax`/`ay` (≥ 1, one of them 1); the symbol is drawn with
+  `rotate(rot) scale(m)`. On the stretched axis whatever lies within half the shorter side of the symbol of either
+  end only moves outwards, the middle stretches (`axisMap`; a symbol as wide as tall opens at its centre line). A rect
+  keeps its corner radius (the slot keeps its round ends), a circle stays a circle and moves – the body of the symbol
+  across the stretch (no class, at least half the extent: round lamp, round table, fan) becomes a slot; paths move
+  every point, arcs take the stretch of their ends. Every part comes back as an absolute path (`parts: [{d, cls}]`,
+  `svg`), remembered per key and stretch; a drawing it cannot read is stretched plainly as before (`parts` null).
+  Rule for new symbols: only `rect`, `circle`, `path` (commands M L H V C Q A Z), `rotate(a 24 24)` – the drawing
+  rules at the top of the file.
+- **One outline for everything:** the symbol, its shadow, the punch of the inside layer (`weather_fx.js`
+  `symbolShape(key, ax, ay)` → `Path2D` kept on the shape) and the halo of a lamp (`haloOf` strokes its bodies) use
+  the same parts. `indoor.symbols` = `{x, y, key, rot, m, ax, ay}` (before `kx`, `ky`); a lamp's `shape` carries
+  `key, m, ax, ay`.
+- **Shadow of a plan symbol = its own outline** (`devShadowSVG`, `sym`): before a disc in the middle, which fitted
+  neither a long light bar nor a turned sofa. The parts in black, the strength on the group (`.fp-devshadow .sym`, no
+  darker overlaps), the blur on an outer group without a transform (as soft as at a bubble); clipped to the room as
+  before. Economical devices: no blur, fainter and a little wider.
+- **Free turn:** `rot` in whole degrees (`floorplan_store.SYMBOL_TURN` 1, before steps of 45 – an older ComfyOS rounds
+  down to 45°). Editor: a knob above the frame (`data-kind="symrot"`, drag mode `symrot`): points where the top of the
+  symbol faces, snaps to a multiple of 45° within `SYMBOL_SNAP` (6°), with Shift in steps of 15°. Panel: "Drehung"
+  −/+ to the next multiple of 45° in that direction (replaces "Drehen", which only turned one way).
+- **Loads ("Verbraucher", wish of the operator):** appliances without intelligence of their own – a floor lamp on a
+  plug, a string of lights, a radio – placed in the floor plan **only for the picture**: no device of ComfyOS, in no
+  list, scene, flow or Matter share, nothing switches them. A first try as a plugin (devices of their own that follow
+  a plug) was dropped before the release – the operator wants them in the floor plan editor alone.
+  - **Stored per floor** (`floorplan_store`): `loads: [{id, x, y, kind, device_id, name, tone, brightness, furniture,
+    size, rot, stretch}]`, **only when a floor has any** (an old plan reads and writes byte for byte as before; not in
+    `CONTENT_KEYS`, `floors()` stays as it is). `_load` checks: `kind` from `LOAD_KINDS` (unknown = lamp), `device_id`
+    ≤ 160, `name` ≤ 40, `tone` warm/neutral/cold (warm not stored), `brightness` 10…100 (100 not stored), the symbol
+    by the rules of a device (`_symbol`, shared since 0.29). Ids unique across floors (`load_ids`), at most `MAX_LOADS`
+    (80) per floor. Copying a floor takes no loads along.
+  - **Kinds** (`floorplan.js` `LOAD_KINDS`): Lampe (light, white tone and brightness chosen), Lichterkette (light,
+    `sparkle`), Kerzen und Kamin (light, 2200 K, `candle`), Radio und Musik, Fernseher (sound), Ventilator, Heizgerät,
+    Anderes Gerät (only the picture). Each has the icon of its bubble and – where symbols are allowed – a symbol a new
+    one starts with (floor lamp, light bar, hi-fi, TV, fan); changing the kind swaps a symbol that was the old default.
+  - **On** = the device it hangs on (`device_id`, any row with a writable `on`: plug, actuator, lamp) is reachable and
+    on (`loadOn`); its state class (`loadClass`) as `HO.devClass` – green when on, grey when the device is not reachable,
+    neutral without one; the status dot only with a device, no marks.
+  - **View:** drawn like a device (bubble with the icon of its kind or plan symbol, shadow, left free by the inside
+    layer); `indoorNow` hands a light that is on to the lamp light (`lamps`, id `load:<id>`, fixed colour from its
+    tone, level from its brightness, the effect of its kind) and a radio or TV to the sound waves (`speakers`, level
+    0.5). Behind the button "Effekte" like every lamp. Tapping a load opens the device it hangs on; the tooltip names it.
+  - **Editor:** tool "Verbraucher" (`load`, icon `light`): a tap places a lamp and selects it (`addLoad`; with
+    `custom_appearance` it starts as a floor lamp, otherwise as a bubble). Selection type `load`: drag = move
+    (`lmove`), the symbol frame with size, width, height and turn like a device (`symEntry`/`symEntryOf` resolve the
+    selected device or load), panel `loadPanelHTML` (name, kind, "Hängt an", light colour, brightness, symbol picker,
+    `symbolControlsHTML` – shared with the device panel). Part of the multi-selection (moves along, keeps its size),
+    delete, resizing the area.
+  - **Basic/Pro:** a load is Basic; as a plan symbol it counts towards `custom_appearance` like a device
+    (`entitlements._appearance`).
+  - **Demo home:** a reading lamp on the plug of the desk in the study.
+- **Tests:** `test_stores` section 6 (turn in whole degrees) and 7 (loads), `test_entitlements` section 3 (a load as a
+  bubble is Basic, as a symbol Pro).
+
 ## Since 0.28 – button "Effekte", light of the lamps, free scaling of plan symbols, a pass over the frame time
 
 - **Button "Effekte"** (`data-act="fpEffects"` on the home page, `pvEffects` in the full screen, symbol `sparkle`) next to
@@ -322,7 +380,7 @@ when something was added.
   colours and line width only in `.fp-sym`, keys are never renamed – the ten keys from before 0.24.2 are kept, so old plans
   show the new drawing). The symbol itself stays neutral, the **status dot** (`.fp-dot`) sits at its top right corner.
 - **Size and turn only for plan symbols:** `devices[id].furniture` (key), `size` (0.5…4, 1 is not stored) and `rot`
-  (steps of 45°, 0 is not stored); `floorplan_store._clean` only keeps `size`/`rot` together with a symbol. At size 1 the
+  (steps of 45°, since 0.29 whole degrees; 0 is not stored); `floorplan_store._clean` only keeps `size`/`rot` together with a symbol. At size 1 the
   box covers `SYMBOL_CELLS` cells, so a symbol keeps its proportion to the rooms at every zoom (`symbolBox`;
   `SYMBOL_MIN_PX` keeps it readable on very small plans). In the editor the selected symbol gets a frame with a handle
   at the corner (`data-kind="symscale"`, drag mode `symscale`), plus −/+ and "Drehen" in the panel for the finger.

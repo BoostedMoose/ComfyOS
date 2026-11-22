@@ -69,7 +69,7 @@ when something was added.
   | `floorplan_elements` | windows & radiators in the floor plan | available |
   | `floorplan_heatmap` | heat map | available |
   | `floorplan_weather` | weather effects around the floor plan | available |
-  | `custom_appearance` | plan symbols for devices in the floor plan (scalable) | available |
+  | `custom_appearance` | plan symbols for devices in the floor plan (scalable); since 0.29 also for loads ("Verbraucher" – as a bubble they are Basic) | available |
   | `flow_pro_nodes` | Pro nodes in Flow | available |
   | `multi_floorplan` | further floors in the floor plan (since 0.25; the first floor and decks are Basic) | available |
   | `advanced_dashboard` | several pages in the widget view of the home page | available |

@@ -7,8 +7,8 @@ floorplan.json:
     "openings": [ {"id", "type": "door"|"window"|"passage"|"radiator", "a": [x, y], "b": [x, y], "side": 1|-1, "device_id",
                     "extra_ids": [device_id, …]} ],   # device_id = first docked device, extra_ids = further ones (optional)
     "devices":  { "<device_id>": {"x", "y", "furniture", "size", "rot", "stretch"} },   # furniture = plan symbol
-                # instead of the standard bubble, with its size and turn; stretch (since 0.28) = its width ÷ its height
-                # against the drawn proportion (1 is not stored)
+                # instead of the standard bubble, with its size and turn (rot in whole degrees since 0.29, before in
+                # steps of 45); stretch (since 0.28) = its width ÷ its height against the drawn proportion (1 is not stored)
     "groups":   [ {"id", "name", "x", "y", "members": [device_id, …]} ],   # device groups (one circle for several devices)
     "home_name": "Wohnung",
     "shadow": true, "north": 0,    # shadow by the position of the sun; north = direction of north in degrees, clockwise from "up"
@@ -17,9 +17,12 @@ floorplan.json:
                                                                # wall (first point repeated at the end); they are outside
     "stairs":   [ {"id", "a": [x, y], "b": [x, y], "width"} ],   # staircase from its foot `a` up to its head `b`; the
                                                                  # floor above shows the stairwell at the same place
+    "loads":    [ {"id", "x", "y", "kind", "device_id", "name", "tone", "brightness",   # since 0.29, only stored when
+                   "furniture", "size", "rot", "stretch"} ],   # there are any: appliances without intelligence of their
+                                                               # own, only for the picture (see below)
     "floor_id": "ground", "floor_name": "",    # since 0.25: id and name of the floor stored at the top level (level 0)
     "floors":   [ {"id", "name", "level": ±n,  # the further floors: level > 0 above, < 0 below the one at the top level
-                   "walls", "rooms", "openings", "devices", "groups", "decks", "stairs"} ] }
+                   "walls", "rooms", "openings", "devices", "groups", "decks", "stairs", "loads"} ] }
 
 Several floors (since 0.25, purely additive): walls, rooms, openings, devices, groups, decks and stairs at the top level are
 the floor with level 0 – a plan from before 0.25 is exactly that and stays valid unchanged. Every further floor
@@ -28,6 +31,12 @@ returns all of them in one form, bottom to top – readers never look at the top
 **A device stands on exactly one floor:** `_clean` walks the floors (level 0 first, then upwards, then downwards)
 and drops every device that an earlier floor already holds – as a position, as a member of a group or docked to an
 element. Ids of floors, rooms and groups are unique across all floors.
+
+Loads (since 0.29, "Verbraucher"): a floor lamp, a string of lights, a radio … without intelligence of their own, put into
+the plan for the picture only – no device of ComfyOS, nothing switches them. `kind` from LOAD_KINDS, `device_id` = the
+switchable device it hangs on (optional; it is on while that one is on), `tone`/`brightness` = its fixed light (warm and
+100 are not stored), a plan symbol like a device (`furniture` with `size`, `rot`, `stretch`). Additive: a floor without
+loads stores no list, so a plan from before reads and writes as before.
 
 Units are grid cells (freely chosen, e.g. 1 cell = 0.5 m).
 Only walls are drawn (open polylines, bend[i] = control point of a
@@ -64,8 +73,12 @@ MAX_FLOORS = 8              # floors of a plan, the one at the top level include
 GROUND_ID = "ground"        # id of the floor at the top level if the plan names none
 CONTENT_KEYS = ("walls", "rooms", "openings", "devices", "groups", "decks", "stairs")   # what every floor holds of its own
 SYMBOL_SIZE = (0.5, 4)      # size of a plan symbol (1 = standard), the same limits as in floorplan.js
-SYMBOL_TURN = 45            # a plan symbol is turned in steps of 45 degrees
+SYMBOL_TURN = 1             # a plan symbol is turned in whole degrees (since 0.29; before in steps of 45)
 SYMBOL_STRETCH = (0.25, 8)  # width of a plan symbol against its height (1 = as drawn), the same limits as in floorplan.js
+MAX_LOADS = 80              # loads ("Verbraucher") per floor (since 0.29)
+LOAD_KINDS = ("lamp", "string_lights", "candles", "radio", "tv", "fan", "heater", "appliance")   # as floorplan.js LOAD_KINDS
+LOAD_TONES = ("warm", "neutral", "cold")   # white tone of a light among the loads; warm is the standard
+LOAD_BRIGHTNESS = (10, 100)                # per cent; 100 is the standard
 
 
 def _read(path, default):
@@ -146,6 +159,43 @@ def _deck(r: dict, width, height):
     return {"pts": pts, "bend": bend} if len(pts) >= 4 else None
 
 
+def _symbol(pos: dict) -> dict[str, Any]:
+    """The plan symbol of a device or a load (key of floorplan_symbols.js): only a symbol has a size, a turn and a
+    stretch of its own; the standard values are not stored. Empty without a symbol."""
+    if not (pos.get("furniture") and isinstance(pos["furniture"], str)):
+        return {}
+    entry: dict[str, Any] = {"furniture": str(pos["furniture"])[:30]}
+    size = _num(pos.get("size"), SYMBOL_SIZE[0], SYMBOL_SIZE[1], 1)
+    if size != 1:
+        entry["size"] = size
+    rot = int(round(_num(pos.get("rot"), 0, 360, 0) / SYMBOL_TURN)) * SYMBOL_TURN % 360
+    if rot:
+        entry["rot"] = rot
+    stretch = _num(pos.get("stretch"), SYMBOL_STRETCH[0], SYMBOL_STRETCH[1], 1)   # free scaling (0.28)
+    if stretch != 1:
+        entry["stretch"] = stretch
+    return entry
+
+
+def _load(raw: dict, width, height) -> dict[str, Any]:
+    """A load ("Verbraucher", since 0.29): place, kind, the device it hangs on, a name, the fixed light of a light (warm
+    and 100 % are not stored) and its plan symbol. An unknown kind becomes a lamp."""
+    entry: dict[str, Any] = {"id": str(raw.get("id") or "")[:40] or "l", "x": _num(raw.get("x"), 0, width, 0),
+                             "y": _num(raw.get("y"), 0, height, 0),
+                             "kind": raw.get("kind") if raw.get("kind") in LOAD_KINDS else "lamp"}
+    if raw.get("device_id"):
+        entry["device_id"] = str(raw["device_id"])[:160]
+    if _name(raw.get("name")):
+        entry["name"] = _name(raw.get("name"))
+    if raw.get("tone") in LOAD_TONES and raw.get("tone") != "warm":
+        entry["tone"] = raw["tone"]
+    brightness = int(_num(raw.get("brightness"), LOAD_BRIGHTNESS[0], LOAD_BRIGHTNESS[1], LOAD_BRIGHTNESS[1]))
+    if brightness != LOAD_BRIGHTNESS[1]:
+        entry["brightness"] = brightness
+    entry.update(_symbol(raw))
+    return entry
+
+
 def _name(value: Any) -> str:
     """Short name or id from any input: single spaces, at most 40 characters."""
     return " ".join(str(value or "").split())[:40]
@@ -162,11 +212,11 @@ def _unique(wanted: str, seen: set[str]) -> str:
 
 
 def _content(raw: dict[str, Any], width, height, taken: set[str], room_ids: set[str],
-             group_ids: set[str]) -> dict[str, Any]:
-    """Check and limit what one floor holds: walls, rooms, openings, device positions, groups, decks, stairs. A device is
-    in at most one group; group members have no position of their own and dock nowhere. `taken` = devices that
-    stand on another floor already – they are dropped here, and the devices of this floor are added to it;
-    `room_ids`/`group_ids` = ids used on other floors."""
+             group_ids: set[str], load_ids: set[str]) -> dict[str, Any]:
+    """Check and limit what one floor holds: walls, rooms, openings, device positions, groups, decks, stairs and – since
+    0.29, only when there are any – loads. A device is in at most one group; group members have no position of their
+    own and dock nowhere. `taken` = devices that stand on another floor already – they are dropped here, and the devices
+    of this floor are added to it; `room_ids`/`group_ids`/`load_ids` = ids used on other floors."""
     walls, rooms, openings, decks, stairs, docked = [], [], [], [], [], set()
     for w in list(raw.get("walls") or []):
         if isinstance(w, dict) and len(walls) < MAX_WALLS:
@@ -207,19 +257,7 @@ def _content(raw: dict[str, Any], width, height, taken: set[str], room_ids: set[
                 entry["t"] = _num(pos.get("t"), 0, 1, 0.5)
             if pos.get("s") in (1, -1):                     # side at the docked element (inside/outside)
                 entry["s"] = pos["s"]
-            if pos.get("furniture") and isinstance(pos["furniture"], str):
-                # plan symbol (key of floorplan_symbols.js): only a symbol has a size and a turn of its own, the
-                # standard values are not stored
-                entry["furniture"] = str(pos["furniture"])[:30]
-                size = _num(pos.get("size"), SYMBOL_SIZE[0], SYMBOL_SIZE[1], 1)
-                if size != 1:
-                    entry["size"] = size
-                rot = int(_num(pos.get("rot"), 0, 359, 0)) // SYMBOL_TURN * SYMBOL_TURN
-                if rot:
-                    entry["rot"] = rot
-                stretch = _num(pos.get("stretch"), SYMBOL_STRETCH[0], SYMBOL_STRETCH[1], 1)   # free scaling (0.28)
-                if stretch != 1:
-                    entry["stretch"] = stretch
+            entry.update(_symbol(pos))
             devices[str(did)[:160]] = entry
     groups, grouped = [], set()
     for g in (raw.get("groups") or [])[:MAX_GROUPS]:
@@ -257,12 +295,21 @@ def _content(raw: dict[str, Any], width, height, taken: set[str], room_ids: set[
         if a and b and ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) >= 0.25:
             stairs.append({"id": str(t.get("id") or "")[:40] or f"s{len(stairs)}", "a": a, "b": b,
                            "width": _num(t.get("width"), STAIR_WIDTH[0], STAIR_WIDTH[1], STAIR_WIDTH[2])})
+    loads = []
+    for item in list(raw.get("loads") or [])[:MAX_LOADS]:
+        if isinstance(item, dict):
+            entry = _load(item, width, height)
+            entry["id"] = _unique(entry["id"] if entry["id"] != "l" else f"l{len(loads)}", load_ids)
+            loads.append(entry)
     taken.update(devices)
     taken.update(grouped)
     for o in openings:
         taken.update(_docked(o))
-    return {"walls": walls, "rooms": rooms, "openings": openings, "devices": devices, "groups": groups, "decks": decks,
-            "stairs": stairs}
+    content = {"walls": walls, "rooms": rooms, "openings": openings, "devices": devices, "groups": groups, "decks": decks,
+               "stairs": stairs}
+    if loads:
+        content["loads"] = loads
+    return content
 
 
 def _level(raw: dict) -> int:
@@ -279,9 +326,9 @@ def _clean(plan: dict[str, Any]) -> dict[str, Any]:
     stands on one floor only – the floor at the top level wins, then the floors upwards, then downwards."""
     width = _num(plan.get("width"), 6, 80, 24)
     height = _num(plan.get("height"), 4, 60, 14)
-    taken, room_ids, group_ids, floor_ids = set(), set(), set(), set()
+    taken, room_ids, group_ids, floor_ids, load_ids = set(), set(), set(), set(), set()
     ground_id = _unique(_name(plan.get("floor_id")) or GROUND_ID, floor_ids)
-    ground = _content(plan, width, height, taken, room_ids, group_ids)
+    ground = _content(plan, width, height, taken, room_ids, group_ids, load_ids)
     stored = plan.get("floors") if isinstance(plan.get("floors"), list) else []
     extra = [f for f in stored if isinstance(f, dict)][:MAX_FLOORS - 1]
     above = sorted((f for f in extra if _level(f) > 0), key=_level) + [f for f in extra if _level(f) == 0]
@@ -291,7 +338,7 @@ def _clean(plan: dict[str, Any]) -> dict[str, Any]:
         for n, raw in enumerate(raws, 1):
             further.append({"id": _unique(_name(raw.get("id")) or f"floor{len(further) + 1}", floor_ids),
                             "name": _name(raw.get("name")), "level": step * n,
-                            **_content(raw, width, height, taken, room_ids, group_ids)})
+                            **_content(raw, width, height, taken, room_ids, group_ids, load_ids)})
     further.sort(key=lambda f: f["level"])
     address = " ".join(str(plan.get("address") or "").split())[:120]
     return {"width": width, "height": height, "address": address, "heatmap": bool(plan.get("heatmap")),
@@ -302,19 +349,22 @@ def _clean(plan: dict[str, Any]) -> dict[str, Any]:
             "walls": ground["walls"], "rooms": ground["rooms"],
             "openings": ground["openings"], "devices": ground["devices"], "groups": ground["groups"],
             "home_name": _name(plan.get("home_name")),
-            "decks": ground["decks"], "stairs": ground["stairs"], "floor_id": ground_id, "floor_name": _name(plan.get("floor_name")),
-            "floors": further}
+            "decks": ground["decks"], "stairs": ground["stairs"],
+            **({"loads": ground["loads"]} if ground.get("loads") else {}),
+            "floor_id": ground_id, "floor_name": _name(plan.get("floor_name")), "floors": further}
 
 
 def floors(plan: dict[str, Any]) -> list[dict[str, Any]]:
     """All floors of a plan in one form, bottom to top: {"id", "name", "level", walls, rooms, openings, devices,
-    groups, decks}. The floor at the top level shares its lists with the plan – a change to a room found here is a
-    change to the plan."""
+    groups, decks, stairs, loads}. The floor at the top level shares its lists with the plan – a change to a room found
+    here is a change to the plan (only an empty `loads` is a list of its own: it is never written into the plan)."""
     ground = {"id": plan.get("floor_id") or GROUND_ID, "name": plan.get("floor_name") or "", "level": 0}
     for key in CONTENT_KEYS:
         if not isinstance(plan.get(key), dict if key == "devices" else list):
             plan[key] = {} if key == "devices" else []
         ground[key] = plan[key]
+    # loads (since 0.29) are only stored when there are any: read them along, never write an empty list into the plan
+    ground["loads"] = plan["loads"] if isinstance(plan.get("loads"), list) else []
     extra = [f for f in plan.get("floors") or [] if isinstance(f, dict)]
     return sorted([ground] + extra, key=lambda f: f.get("level") or 0)
 

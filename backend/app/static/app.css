@@ -694,6 +694,13 @@ button.stat[disabled] { cursor: default; }
 .fp-devshadow { pointer-events: none; }
 .fp-devshadow circle { fill: rgba(0, 0, 0, .75); }
 .fp-devshadow.soft circle { fill: url(#fpdevsoft); }   /* economical devices: gradient instead of blur (floorplan.js) */
+/* the shadow of a plan symbol is its own outline (since 0.29): opaque inside, the group sets the strength, so the
+   parts lying on each other do not darken; without a blur (economical devices) fainter and a little wider */
+.fp-devshadow .sym { opacity: .75; }
+.fp-devshadow .sym path { fill: black; stroke: black; stroke-width: 3px; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.fp-devshadow .sym .l { fill: none; }
+.fp-devshadow.soft .sym { opacity: .3; }
+.fp-devshadow.soft .sym path { stroke-width: 6px; }
 .fp-shadow { pointer-events: none; }
 .fp-compass { flex: none; width: 34px; height: 34px; transition: transform .1s; }
 .fp-compass circle { fill: var(--card-2); stroke: var(--line-2); stroke-width: 1; }
@@ -887,6 +894,8 @@ polyline.fp-draft { fill: none; }
 .fp-mhandle[data-kind="symscale"] { cursor: nwse-resize; }
 .fp-mhandle[data-kind="symscale"][data-c="e"] { cursor: ew-resize; }
 .fp-mhandle[data-kind="symscale"][data-c="s"] { cursor: ns-resize; }
+.fp-mhandle[data-kind="symrot"] { cursor: grab; }   /* turn a plan symbol (since 0.29) */
+.fp-rotarm { fill: none; stroke: var(--accent); stroke-width: 1.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .fp-symlabel { min-width: 52px; }
 .fp-badge.count circle { fill: var(--accent); }
 .fp-badge.count text { fill: #fff; font-weight: 700; }

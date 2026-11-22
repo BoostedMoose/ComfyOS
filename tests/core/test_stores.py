@@ -10,7 +10,9 @@ existing installations: there are no conversion routines, so a format must never
     4  an unreadable file is kept as a copy before it is overwritten
     5  floor plan with several floors (since 0.25): a plan from before stays one floor, a device stands on one floor
        only, ids and levels are unambiguous, decks are closed, stairs have a foot, a head and a limited width
-    6  free scaling of a plan symbol (since 0.28): `stretch` only with a symbol, limited, 1 is not stored
+    6  free scaling of a plan symbol (since 0.28): `stretch` only with a symbol, limited, 1 is not stored; the turn
+       `rot` in whole degrees (since 0.29)
+    7  loads ("Verbraucher", since 0.29): only stored when a floor has any, checked and limited, ids unique across floors
 
     python tests/core/test_stores.py [path-to-comfyos]
     python tests/core/test_stores.py [path-to-comfyos] --write   # regenerate the sample files – only after a
@@ -393,8 +395,43 @@ if placed != expected:
     problems.append(f"stretch of a plan symbol: kept only with a symbol, limited, 1 not stored: {placed}")
 if fps.clean({"devices": placed})["devices"] != placed:
     problems.append("cleaning a stretched symbol twice does not give the same")
+# the turn in whole degrees (since 0.29, before in steps of 45): kept as it is, rounded, 360 and 0 are not stored
+turned = fps.clean({"devices": {"dev:a": {"x": 1, "y": 1, "furniture": "sofa", "rot": 30},
+                                "dev:b": {"x": 1, "y": 1, "furniture": "sofa", "rot": 90.4},
+                                "dev:c": {"x": 1, "y": 1, "furniture": "sofa", "rot": 359.7},
+                                "dev:d": {"x": 1, "y": 1, "furniture": "sofa", "rot": "schräg"},
+                                "dev:e": {"x": 1, "y": 1, "rot": 45}}})["devices"]
+if [turned[k].get("rot") for k in ("dev:a", "dev:b", "dev:c", "dev:d", "dev:e")] != [30, 90, None, None, None]:
+    problems.append(f"turn of a plan symbol: whole degrees, only with a symbol, 0 not stored: {turned}")
+if fps.clean({"devices": turned})["devices"] != turned:
+    problems.append("cleaning a turned symbol twice does not give the same")
 settle()
-print("6 free scaling: stretch only with a plan symbol, limited, the drawn proportion is not stored")
+print("6 free scaling: stretch only with a plan symbol, limited, the drawn proportion is not stored; the turn in whole degrees")
+
+# 7) Loads ("Verbraucher", since 0.29): additive per floor – a floor without loads stores no list (old plans read and
+#    write as before); kind, light, device and symbol are checked, the standards (warm, 100 %) are not stored, ids are
+#    unique across floors, the number is limited
+raw = {"loads": [{"id": "l1", "x": 3, "y": 4, "kind": "lamp", "device_id": "dev:stecker", "tone": "cold", "brightness": 64.6,
+                  "name": "  Steh   lampe ", "furniture": "floor-lamp", "size": 1.5, "rot": 30, "stretch": 1},
+                 {"id": "l1", "x": 99, "y": -2, "kind": "toaster", "tone": "warm", "brightness": 100, "size": 2},
+                 {"x": 1, "y": 1, "kind": "radio", "tone": "lila", "brightness": 3}, "junk"],
+       "floors": [{"id": "og", "level": 1, "loads": [{"id": "l1", "x": 2, "y": 2, "kind": "tv"}]},
+                  {"id": "dach", "level": 2}]}
+cleaned = fps.clean(raw)
+expected = [{"id": "l1", "x": 3.0, "y": 4.0, "kind": "lamp", "device_id": "dev:stecker", "name": "Steh lampe", "tone": "cold",
+             "brightness": 64, "furniture": "floor-lamp", "size": 1.5, "rot": 30},
+            {"id": "l1_2", "x": 24.0, "y": 0.0, "kind": "lamp"},
+            {"id": "l2", "x": 1.0, "y": 1.0, "kind": "radio", "brightness": 10}]
+if cleaned.get("loads") != expected:
+    problems.append(f"loads of the floor at the top level: {cleaned.get('loads')}")
+if cleaned["floors"][0].get("loads") != [{"id": "l1_3", "x": 2.0, "y": 2.0, "kind": "tv"}] or "loads" in cleaned["floors"][1]:
+    problems.append(f"loads of further floors (unique ids, no empty list): {cleaned['floors']}")
+if "loads" in fps.clean({"walls": [], "loads": []}) or fps.clean(cleaned) != cleaned:
+    problems.append("a plan without loads stores a list, or cleaning twice does not give the same")
+if len(fps.clean({"loads": [{"x": 1, "y": 1}] * (fps.MAX_LOADS + 5)})["loads"]) != fps.MAX_LOADS:
+    problems.append("the number of loads per floor is not limited")
+settle()
+print("7 loads: only stored when there are any, kind/light/device/symbol checked, standards not stored, ids unique, limited")
 
 if found:
     sys.exit(f"{len(found)} Befunde")

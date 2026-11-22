@@ -25,10 +25,29 @@
   const GROUP_SCALE = 1.3, DOT = 0.36, MARK = 0.44, COUNT_MARK = 0.56
   const MAX_DOCKED = 4   // devices at one window, door or radiator (floorplan_store.MAX_DOCKED)
   const SYMBOL_CELLS = 2, SYMBOL_MIN = 0.5, SYMBOL_MAX = 4, SYMBOL_STEP = 0.1, SYMBOL_TURN = 45, SYMBOL_MIN_PX = 26
+  const SYMBOL_SNAP = 6   // degrees: turning with the knob snaps to a multiple of SYMBOL_TURN this close to it (since 0.29)
   const STRETCH_MIN = 0.25, STRETCH_MAX = 8   // width of a symbol against its height (floorplan_store.SYMBOL_STRETCH)
-  // Several floors: what every floor holds of its own (floorplan_store.CONTENT_KEYS) and how many a plan can have
-  const CONTENT = ['walls', 'rooms', 'openings', 'devices', 'groups', 'decks', 'stairs'], MAX_FLOORS = 8, GROUND_ID = 'ground'
+  // Several floors: what every floor holds of its own (floorplan_store.CONTENT_KEYS, since 0.29 plus `loads`) and how
+  // many a plan can have
+  const CONTENT = ['walls', 'rooms', 'openings', 'devices', 'groups', 'decks', 'stairs', 'loads'], MAX_FLOORS = 8, GROUND_ID = 'ground'
   const STAIR_MIN = 0.5, STAIR_MAX = 6, STAIR_WIDTH = 2   // width of a staircase in cells (floorplan_store.STAIR_WIDTH)
+  /* Loads ("Verbraucher", since 0.29): appliances without intelligence of their own – a floor lamp, a string of lights,
+     a radio – put into the plan only for the picture. They hang on a switchable device (`device_id`, optional) and are
+     on while it is on: a light glows in its fixed white tone and brightness, a string of lights twinkles, candles
+     flicker, a radio or TV sends sound waves. Kinds as floorplan_store.LOAD_KINDS: label, icon of the bubble, the plan
+     symbol a new one gets (where symbols are allowed), light or sound, effect, a fixed white tone. */
+  const LOAD_KINDS = {
+    lamp: { label: 'Lampe', icon: 'light', symbol: 'floor-lamp', light: true },
+    string_lights: { label: 'Lichterkette', icon: 'light', symbol: 'light-bar', light: true, effect: 'sparkle' },
+    candles: { label: 'Kerzen und Kamin', icon: 'flame', light: true, effect: 'candle', kelvin: 2200 },
+    radio: { label: 'Radio und Musik', icon: 'media', symbol: 'hifi', sound: true },
+    tv: { label: 'Fernseher', icon: 'media', symbol: 'tv', sound: true },
+    fan: { label: 'Ventilator', icon: 'switch', symbol: 'fan' },
+    heater: { label: 'Heizgerät', icon: 'flame' },
+    appliance: { label: 'Anderes Gerät', icon: 'switch' }
+  }
+  const LOAD_TONES = { warm: ['Warmweiß', 2700], neutral: ['Neutralweiß', 4000], cold: ['Kaltweiß', 6500] }   // warm = standard
+  const MAX_LOADS = 80   // per floor (floorplan_store.MAX_LOADS)
   // Editor preferences in the browser (like the grid): the neighbouring floor shines through, points snap to its walls
   const readPref = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v !== '0' } catch (e) { return fallback } }
   const writePref = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0') } catch (e) { } }
@@ -262,6 +281,9 @@
     c.decks = (src.decks || []).filter(d => d.pts && d.pts.length >= 3).map(normDeck)
     c.stairs = (src.stairs || []).filter(t => t && t.a && t.b).map(t => ({ id: t.id || uid('s'), a: [+t.a[0], +t.a[1]], b: [+t.b[0], +t.b[1]],
       width: clamp(+t.width || STAIR_WIDTH, STAIR_MIN, STAIR_MAX) }))
+    // loads (since 0.29): kept as stored, with an id and a known kind
+    c.loads = (src.loads || []).filter(l => l && l.x != null && l.y != null).map(l => Object.assign({}, l,
+      { id: l.id || uid('l'), x: +l.x || 0, y: +l.y || 0, kind: LOAD_KINDS[l.kind] ? l.kind : 'lamp' }))
     return c
   }
 
@@ -341,14 +363,16 @@
   // proportion (a long light bar). k/kx = cells per symbol unit along its height and width; lw/lh = its own half width
   // and height before the turn; hw/hh = half width and height of the box the turned symbol covers, in cells (u = one
   // pixel). The lines keep their width at every scale (non-scaling stroke in app.css).
+  // Since 0.29 the drawing is never distorted: it is drawn at one scale `m` (the smaller of k and kx) and stretched
+  // smartly by ax/ay along the longer side (HO.planSymbolShape – a slot keeps its round ends); `rot` in whole degrees.
   function symbolBox(entry, u) {
     const sym = entry && entry.furniture && HO.planSymbols[entry.furniture]
     if (!sym) return null
-    const size = clamp(Number(entry.size) || 1, SYMBOL_MIN, SYMBOL_MAX), rot = (((Number(entry.rot) || 0) % 360) + 360) % 360
+    const size = clamp(Number(entry.size) || 1, SYMBOL_MIN, SYMBOL_MAX), rot = ((Math.round(Number(entry.rot) || 0) % 360) + 360) % 360
     const stretch = clamp(Number(entry.stretch) || 1, STRETCH_MIN, STRETCH_MAX)
-    const k = Math.max(SYMBOL_CELLS * size, SYMBOL_MIN_PX * u) / 48, kx = k * stretch
+    const k = Math.max(SYMBOL_CELLS * size, SYMBOL_MIN_PX * u) / 48, kx = k * stretch, m = Math.min(k, kx)
     const a = rot * Math.PI / 180, w = sym.w * kx / 2, h = sym.h * k / 2
-    return { sym, size, rot, stretch, k, kx, lw: w, lh: h,
+    return { sym, size, rot, stretch, k, kx, m, ax: kx / m, ay: k / m, lw: w, lh: h,
       hw: Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)), hh: Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)) }
   }
   // One mark at a device (centre x/y, radius b): 'battery', 'lock', 'offline', 'error' (extra = 'alarm' lets it blink)
@@ -430,7 +454,7 @@
 
   const TOOLS = [['select', 'pointer', 'Auswählen'], ['wall', 'wall', 'Wand'], ['door', 'door', 'Tür'],
     ['window', 'contact', 'Fenster'], ['passage', 'passage', 'Durchbruch'], ['radiator', 'radiator', 'Heizkörper'],
-    ['deck', 'deck', 'Balkon'], ['stair', 'stairs', 'Treppe']]
+    ['deck', 'deck', 'Balkon'], ['stair', 'stairs', 'Treppe'], ['load', 'light', 'Verbraucher']]
   const HINTS = {
     select: 'Antippen zum Bearbeiten. Bei einer ausgewählten Wand: Punkte ziehen (verbundene Wände ziehen mit), Mitte ziehen = Bogen, Mitte doppelt antippen = neuer Punkt, Punkt doppelt antippen = löschen.',
     wall: 'Punkte nacheinander antippen. Ist eine Fläche rundum von Wänden umschlossen, wird sie automatisch ein Raum. Ersten Punkt erneut antippen schließt den Zug; „Fertig" oder Doppeltippen beendet ihn. Shift = 45°-Schritte.',
@@ -439,7 +463,8 @@
     passage: 'Entlang einer Wand ziehen – öffnet die Wand ohne Tür (z. B. offener Durchgang). Die Heatmap fließt hindurch.',
     radiator: 'Entlang einer Wand ziehen – der Heizkörper sitzt auf der Raumseite. Mit einem Thermostat verknüpfbar.',
     stair: 'Von der untersten zur obersten Stufe ziehen. Im Stockwerk darüber erscheint an derselben Stelle der Abgang. In der Ansicht wechselt Antippen der Treppe das Stockwerk.',
-    deck: 'Balkon oder Terrasse: Ecken nacheinander antippen, den ersten Punkt erneut antippen schließt die Fläche („Fertig" ebenso). Rastet an Wänden ein. Die Fläche liegt außen – Regen, Schnee und Sonne ziehen darüber hinweg.'
+    deck: 'Balkon oder Terrasse: Ecken nacheinander antippen, den ersten Punkt erneut antippen schließt die Fläche („Fertig" ebenso). Rastet an Wänden ein. Die Fläche liegt außen – Regen, Schnee und Sonne ziehen darüber hinweg.',
+    load: 'Antippen stellt einen Verbraucher auf: ein Gerät ohne eigene Steuerung wie die Stehlampe am Zwischenstecker, die Lichterkette oder das Radio. Hängt er an einem Gerät, das ComfyOS schaltet, leuchtet oder spielt er im Plan, solange es an ist. Er dient nur dem Bild – in Listen, Szenen und Flows erscheint er nicht.'
   }
   const OPEN_LABEL = { door: 'Tür', window: 'Fenster', passage: 'Durchbruch', radiator: 'Heizkörper' }
   const HOME_DEFAULT = 'Wohnung', MAX_MEMBERS = 24
@@ -501,7 +526,8 @@
         if (opts.onSave) opts.onSave(st.plan); render()
       }
       const listOf = type => type === 'room' ? st.plan.rooms : type === 'wall' ? st.plan.walls : type === 'open' ? st.plan.openings
-        : type === 'group' ? st.plan.groups : type === 'deck' ? st.plan.decks : type === 'stair' ? st.plan.stairs : []
+        : type === 'group' ? st.plan.groups : type === 'deck' ? st.plan.decks : type === 'stair' ? st.plan.stairs
+          : type === 'load' ? st.plan.loads : []
       const groupById = id => st.plan.groups.find(g => g.id === id)
       const groupOf = id => st.plan.groups.find(g => g.members.includes(id))
       const posOf = id => st.plan.devices[id] || (g => g && { x: g.x, y: g.y })(groupOf(id))
@@ -578,7 +604,7 @@
         if (all.length >= MAX_FLOORS) return HO.toast(`Mehr als ${MAX_FLOORS} Stockwerke passen nicht in einen Grundriss.`, 'warn')
         if (!HO.can('multi_floorplan')) return HO.upsell({ title: 'Mehrere Stockwerke', message: 'Weitere Stockwerke im Grundriss gehören zu ComfyOS Pro.' })
         const floor = { id: uid('f'), name: '', level: where === 'below' ? all[0].level - 1 : all[all.length - 1].level + 1,
-          walls: [], rooms: [], openings: [], devices: {}, groups: [], decks: [], stairs: [] }
+          walls: [], rooms: [], openings: [], devices: {}, groups: [], decks: [], stairs: [], loads: [] }
         if (copy) {
           floor.walls = from.walls.map((w, i) => ({ id: uid('w') + i, pts: clone(w.pts), bend: clone(w.bend) }))
           floor.openings = from.openings.map((o, i) => ({ id: uid('o') + i, type: o.type, a: [...o.a], b: [...o.b], side: o.side, device_id: null }))
@@ -740,6 +766,32 @@
         const d = devById()[id], pos = posOf(id), r = pos && roomAt([pos.x, pos.y])
         if (!d || !r || !r.room_id || roomKey(r) === d.room_id || !opts.onAssign) return
         opts.onAssign(d, roomKey(r), roomLabel(r))
+      }
+
+      /* ---------- Loads ("Verbraucher", since 0.29): only for the picture – no device of ComfyOS, nothing to switch. */
+      const loadById = id => st.plan.loads.find(l => l.id === id) || null
+      // The device a load hangs on (a row of the home) or null; `on` = it is reachable and on.
+      const carrierOf = (l, db) => (l && l.device_id && db[l.device_id]) || null
+      const loadOn = (l, db) => { const d = carrierOf(l, db); return !!(d && d.online && d.on === true) }
+      // State class like HO.devClass: on with its device, grey when the device is not reachable, neutral without one.
+      const loadClass = (l, db) => { const d = carrierOf(l, db); return !d ? '' : !d.online ? 'off' : d.on === true ? 'on' : '' }
+      // Devices a load can hang on: everything ComfyOS switches on and off (plug, switching actuator, lamp), by name.
+      const carriers = () => st.devices.filter(d => HO.caps.has(d, 'on', true)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'))
+      // The entry of a selection {type, id} whose plan symbol can be scaled and turned: a free device or a load – read
+      // anew every time (fresh data from the server replaces the plan during a drag).
+      const symEntryOf = sel => !sel ? null : sel.type === 'dev' ? (dockedTo(sel.id) ? null : st.plan.devices[sel.id] || null)
+        : sel.type === 'load' ? loadById(sel.id) : null
+      // The same for the single selection: what frame, handles and panel scale and turn.
+      const symEntry = () => st.msel.length ? null : symEntryOf(st.sel)
+      // Tool "Verbraucher": a new lamp at the tapped place – with the plan symbol of its kind where symbols are allowed
+      // (Pro "Gerätedarstellung"), otherwise as a bubble. It is selected at once, the panel asks what it hangs on.
+      function addLoad(p) {
+        if (st.plan.loads.length >= MAX_LOADS) return HO.toast(`Höchstens ${MAX_LOADS} Verbraucher je Stockwerk.`, 'warn')
+        const load = { id: uid('l'), x: r3(clamp(p[0], 0, st.plan.width)), y: r3(clamp(p[1], 0, st.plan.height)), kind: 'lamp' }
+        if (HO.can('custom_appearance')) load.furniture = LOAD_KINDS.lamp.symbol
+        st.plan.loads.push(load)
+        st.tool = 'select'; st.sel = { type: 'load', id: load.id }
+        save(); render()
       }
 
       /* ---------- Groups (like folders): drag a device onto a device or a group */
@@ -1339,7 +1391,10 @@
 
       /* Centred, soft shadow below device symbols – lifts the magenta outline off the heat map.
          Clipped per symbol to its own room area (the filter acts before the clipping), lies below the walls:
-         so it bleeds neither over walls nor into neighbouring rooms or out of the home. Outside every room: no shadow. */
+         so it bleeds neither over walls nor into neighbouring rooms or out of the home. Outside every room: no shadow.
+         A plan symbol casts the shadow of its own outline (since 0.29, `sym`: the parts of HO.planSymbolShape in its
+         scale and turn) – before a disc that fitted neither a long light bar nor a turned sofa. The blur sits on an outer
+         group without a transform, so it is as soft in plan units as the one of a bubble. */
       function devShadowSVG(list, lay, R) {
         const clips = new Map(), low = HO.perf.low
         let out = ''
@@ -1347,6 +1402,12 @@
           const k = lay.findIndex(it => inside(it.face.poly, x.p))
           if (k < 0) continue
           clips.set(k, lay[k].face.poly)
+          if (x.sym && x.sym.parts) {
+            const body = x.sym.parts.map(part => `<path${part.cls === 'l' ? ' class="l"' : ''} d="${part.d}"/>`).join('')
+            const turned = `<g transform="translate(${r3(x.p[0])} ${r3(x.p[1])}) rotate(${x.sym.rot}) scale(${x.sym.m.toFixed(5)}) translate(-24 -24)">${body}</g>`
+            out += `<g class="sym"${low ? '' : ' filter="url(#fpdevblur)"'} clip-path="url(#fpclip${k})">${turned}</g>`
+            continue
+          }
           // economical devices (HO.perf): a soft gradient instead of a blur per symbol – looks almost the same
           out += low ? `<circle cx="${x.p[0]}" cy="${x.p[1]}" r="${(x.r * 1.2 + R * 0.9).toFixed(3)}" fill="url(#fpdevsoft)" clip-path="url(#fpclip${k})"/>`
             : `<circle cx="${x.p[0]}" cy="${x.p[1]}" r="${(x.r * 1.2).toFixed(3)}" filter="url(#fpdevblur)" clip-path="url(#fpclip${k})"/>`
@@ -1522,13 +1583,15 @@
             // docked dot); the grab area is the whole box, at least as large as a bubble
             const cx = box.sym.round ? box.hw * 0.71 : box.hw, cy = box.sym.round ? box.hh * 0.71 : box.hh
             const hx = Math.max(box.hw, R * 0.8), hy = Math.max(box.hh, R * 0.8)
-            shadows.push({ p: [stored.x, stored.y], r: (box.hw + box.hh) * 0.45 })
-            st.symbols.push({ x: stored.x, y: stored.y, key: stored.furniture, rot: box.rot, kx: box.kx, ky: box.k })
+            const shape = HO.planSymbolShape(stored.furniture, box.ax, box.ay)
+            // the shadow takes the outline of the symbol itself, in its stretch and turn (since 0.29, before a disc)
+            shadows.push({ p: [stored.x, stored.y], r: (box.hw + box.hh) * 0.45, sym: { rot: box.rot, m: box.m, parts: shape.parts } })
+            st.symbols.push({ x: stored.x, y: stored.y, key: stored.furniture, rot: box.rot, m: box.m, ax: box.ax, ay: box.ay })
             st.bubbles.push({ x: stored.x + cx, y: stored.y - cy, r: R * DOT })
             freeMarks(markSpots(d, cx, cy, mark, true), stored.x, stored.y)
             s += `<g class="fp-dev symbol ${HO.devClass(d)} ${sel} ${merge}" data-kind="dev" data-id="${HO.esc(id)}" transform="translate(${stored.x} ${stored.y})">
             <rect class="hit" x="${r3(-hx)}" y="${r3(-hy)}" width="${r3(2 * hx)}" height="${r3(2 * hy)}" rx="${r3(R * 0.3)}"/>
-            <g class="fp-sym" transform="rotate(${box.rot}) scale(${box.kx.toFixed(5)} ${box.k.toFixed(5)}) translate(-24 -24)">${box.sym.svg}</g>
+            <g class="fp-sym" transform="rotate(${box.rot}) scale(${box.m.toFixed(5)}) translate(-24 -24)">${shape.svg}</g>
             <circle class="fp-dot" cx="${r3(cx)}" cy="${r3(-cy)}" r="${r3(R * DOT)}"/>
             ${deviceMarks(d, cx, cy, mark, true)}${nameSVG(d.name, box.hh)}
           </g>`
@@ -1541,6 +1604,30 @@
             <circle class="bg" r="${R}"/><g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[d.kind] || HO.iconPaths.device}</g>
             ${deviceMarks(d, R * 0.78, R * 0.78, mark, false)}${nameSVG(d.name, R)}
           </g>`
+          }
+        }
+        // loads (since 0.29): like a device – a bubble with the symbol of their kind or a plan symbol, the shadow, the
+        // place on top of the inside layer –, but without marks; the status dot only when they hang on a device
+        for (const l of st.plan.loads) {
+          const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp, carrier = carrierOf(l, db), box = symbolBox(l, u)
+          const cls = `fp-dev fp-load ${loadClass(l, db)} ${isSel('load', l.id) ? 'sel' : ''}`
+          const at = `data-kind="load" data-id="${HO.esc(l.id)}" transform="translate(${l.x} ${l.y})"`
+          if (box) {
+            const cx = box.sym.round ? box.hw * 0.71 : box.hw, cy = box.sym.round ? box.hh * 0.71 : box.hh
+            const hx = Math.max(box.hw, R * 0.8), hy = Math.max(box.hh, R * 0.8), shape = HO.planSymbolShape(l.furniture, box.ax, box.ay)
+            shadows.push({ p: [l.x, l.y], r: (box.hw + box.hh) * 0.45, sym: { rot: box.rot, m: box.m, parts: shape.parts } })
+            st.symbols.push({ x: l.x, y: l.y, key: l.furniture, rot: box.rot, m: box.m, ax: box.ax, ay: box.ay })
+            if (carrier) st.bubbles.push({ x: l.x + cx, y: l.y - cy, r: R * DOT })
+            s += `<g class="${cls} symbol" ${at}><rect class="hit" x="${r3(-hx)}" y="${r3(-hy)}" width="${r3(2 * hx)}" height="${r3(2 * hy)}" rx="${r3(R * 0.3)}"/>
+              <g class="fp-sym" transform="rotate(${box.rot}) scale(${box.m.toFixed(5)}) translate(-24 -24)">${shape.svg}</g>
+              ${carrier ? `<circle class="fp-dot" cx="${r3(cx)}" cy="${r3(-cy)}" r="${r3(R * DOT)}"/>` : ''}${l.name ? nameSVG(l.name, box.hh) : ''}</g>`
+          } else {
+            const gs = R * 1.22
+            shadows.push({ p: [l.x, l.y], r: R })
+            st.bubbles.push({ x: l.x, y: l.y, r: R })
+            s += `<g class="${cls}" ${at}><circle class="bg" r="${R}"/>
+              <g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[kind.icon] || HO.iconPaths.device}</g>
+              ${l.name ? nameSVG(l.name, R) : ''}</g>`
           }
         }
         // groups: one bubble for several devices (always the same size), in it a chosen plan symbol, the symbol of a
@@ -1608,13 +1695,17 @@
           for (const e of ['a', 'b']) s += `<circle class="fp-handle" data-kind="oend" data-end="${e}" cx="${it[e][0]}" cy="${it[e][1]}" r="${8 * u}"/>`
         }
         // selected plan symbol: a frame turned with the symbol – the corner changes its size (the proportion stays), the
-        // middle of the right side its width, the middle of the bottom side its height (since 0.28: free scaling)
-        if (st.editing && st.sel && st.sel.type === 'dev' && !st.msel.length && db[st.sel.id] && !dockedTo(st.sel.id)) {
-          const e = st.plan.devices[st.sel.id], box = symbolBox(e, u)
+        // middle of the right side its width, the middle of the bottom side its height (since 0.28: free scaling); the
+        // knob above the top side turns it (since 0.29, `symrot`: free, snaps to steps of 45°, Shift = steps of 15°)
+        const framed = st.editing && symEntry()          // a free device or – since 0.29 – a load
+        if (framed && (st.sel.type !== 'dev' || db[st.sel.id])) {
+          const e = framed, box = symbolBox(e, u)
           if (box) {
-            const pad = 5 * u, hs = (COARSE ? 18 : 10) * u, x1 = box.lw + pad, y1 = box.lh + pad
+            const pad = 5 * u, hs = (COARSE ? 18 : 10) * u, x1 = box.lw + pad, y1 = box.lh + pad, arm = (COARSE ? 30 : 22) * u
             const grip = (c, x, y, round) => `<rect class="fp-mhandle ${c === 'se' ? 'corner' : 'side ' + c}" data-kind="symscale" data-c="${c}" x="${r3(x - hs / 2)}" y="${r3(y - hs / 2)}" width="${hs}" height="${hs}" rx="${round ? hs / 2 : 3 * u}"/>`
             s += `<g transform="translate(${e.x} ${e.y}) rotate(${box.rot})"><rect class="fp-mbox" x="${r3(-x1)}" y="${r3(-y1)}" width="${r3(2 * x1)}" height="${r3(2 * y1)}" rx="${4 * u}"/>
+              <path class="fp-rotarm" d="M0 ${r3(-y1)}V${r3(-y1 - arm)}"/>
+              <circle class="fp-mhandle rot" data-kind="symrot" cx="0" cy="${r3(-y1 - arm)}" r="${r3(hs * 0.62)}"><title>Drehen</title></circle>
               ${grip('e', x1, 0, true)}${grip('s', 0, y1, true)}${grip('se', x1, y1, false)}</g>`
           }
         }
@@ -1698,12 +1789,16 @@
          level = volume 0…1. A muted speaker sends no waves; a floor below the ground has no window light. A further part
          (surround speaker, sub, second box of a stereo pair) has no capability `playing` of its own: its row names its
          main device (`part_of`, plugin API revision 8) – it plays exactly when that one plays, with its volume and mute. `bubbles` = device bubbles, group
-         bubbles, docked dots and marks (x, y, r), `symbols` = plan symbols (x, y, key, rot, kx, ky) – the inside layer
-         leaves both free, the canvas lies above the SVG (since 0.28 symbols too: bubble and symbol always lie on top).
+         bubbles, docked dots and marks (x, y, r), `symbols` = plan symbols (x, y, key, rot, m = scale, ax/ay = stretch of
+         HO.planSymbolShape, since 0.29) – the inside layer leaves both free, the canvas lies above the SVG (since 0.28
+         symbols too: bubble and symbol always lie on top).
          `lamps` (since 0.28) = every placed light that is on, or a group with such members – x, y, room, shape of the
-         source (bubble: r; plan symbol: rot, lw, lh, round), colours = what the lamp shines right now (HO.lightColors:
+         source (bubble: r; plan symbol: rot, lw, lh, round and – for a halo along its outline – key, m, ax, ay),
+         colours = what the lamp shines right now (HO.lightColors:
          white tone, colour or the points of a gradient), level = brightness 0…1, effect = running light effect or null,
          glow = how its light spreads (lampFields, like the window light: walls stop it, open doors let it through).
+         Loads (since 0.29, "Verbraucher") take part like devices while the device they hang on is on: a light as a lamp
+         (id `load:<id>`, its fixed white tone and brightness, the effect of its kind), a radio or TV as a speaker.
          light = false: no window light (Basic, weather effects switched off); the button "Effekte" (st.effects) switches
          lamps and speakers. */
       function indoorNow(light) {
@@ -1742,7 +1837,7 @@
           if (!colors.length || dockedTo(id)) continue
           const room = roomOf([pos.x, pos.y]), box = symbolBox(pos, u)
           if (room < 0) continue
-          const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round } : { r: R }
+          const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round, key: pos.furniture, m: box.m, ax: box.ax, ay: box.ay } : { r: R }
           lamps.push({ id, x: pos.x, y: pos.y, room, shape, colors, level: level(d), effect: effectOf(d) })
         }
         for (const g of own ? st.plan.groups : []) {
@@ -1751,6 +1846,18 @@
           const colors = [].concat.apply([], members.map(shine)).slice(0, 8)
           lamps.push({ id: 'group:' + g.id, x: g.x, y: g.y, room, shape: { r: R * GROUP_SCALE }, colors,
             level: Math.max.apply(null, members.map(level)), effect: members.map(effectOf).filter(Boolean)[0] || null })
+        }
+        // loads (since 0.29): a light whose device is on shines in its fixed white tone and brightness; a string of
+        // lights twinkles, candles flicker (the effect of its kind)
+        for (const l of own ? st.plan.loads : []) {
+          const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp
+          if (!kind.light || !loadOn(l, db)) continue
+          const room = roomOf([l.x, l.y]), box = symbolBox(l, u)
+          if (room < 0) continue
+          const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round, key: l.furniture, m: box.m, ax: box.ax, ay: box.ay } : { r: R }
+          const kelvin = kind.kelvin || (LOAD_TONES[l.tone] || LOAD_TONES.warm)[1]
+          lamps.push({ id: 'load:' + l.id, x: l.x, y: l.y, room, shape, colors: [HO.mirekToRgb(1e6 / kelvin)],
+            level: level({ brightness: loadBrightness(l) }), effect: kind.effect || null })
         }
         if (lamps.length) {
           const fields = lampFields(lamps, doors, fs.map(f => f.poly))
@@ -1769,6 +1876,12 @@
         for (const g of own ? st.plan.groups : []) {
           const playing = g.members.map(id => db[id]).filter(plays), room = roomOf([g.x, g.y])
           if (playing.length && room >= 0) speakers.push({ x: g.x, y: g.y, r: R * GROUP_SCALE, room, level: Math.max.apply(null, playing.map(loud)) })
+        }
+        // a radio or TV among the loads (since 0.29) plays while its device is on – at a middle volume, it has none
+        for (const l of own ? st.plan.loads : []) {
+          if (!(LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).sound || !loadOn(l, db)) continue
+          const room = roomOf([l.x, l.y]), box = symbolBox(l, u)
+          if (room >= 0) speakers.push({ x: l.x, y: l.y, r: box ? Math.max(box.hw, box.hh) : R, room, level: 0.5 })
         }
         return { windows, doors, speakers, lamps, bubbles: st.bubbles || [], symbols: st.symbols || [] }
       }
@@ -2050,6 +2163,48 @@
           ${button('', firstLabel, firstIcon)}${Object.entries(HO.planSymbols).map(([key, symbol]) => button(key, symbol.label, HO.planSymbolIcon(key))).join('')}
           ${kinds ? Object.entries(HO.kindLabel).filter(([key]) => HO.iconPaths[key]).map(([key, label]) => button(key, label, HO.icon(key))).join('') : ''}</div></div>`
       }
+      // Size, width, height and turn of a plan symbol (a device or a load) for the panel – the finger needs no handle.
+      // Size keeps the proportion, width and height go on their own (since 0.28), the turn goes to the next 45° (0.29).
+      function symbolControlsHTML(box) {
+        const width = box.size * box.stretch
+        const step = (act, label, value, lo, hi) => `<div class="row wrap g8" style="margin-top:8px"><span class="small muted fp-symlabel">${label}</span>
+          <button class="btn sm" data-act="${act}" data-v="-1" title="${label}: kleiner" aria-label="${label}: kleiner" ${value <= lo + 1e-6 ? 'disabled' : ''}>${HO.icon('minus', 'sm')}</button>
+          <b class="fp-symsize">${Math.round(value * 100)} %</b>
+          <button class="btn sm" data-act="${act}" data-v="1" title="${label}: größer" aria-label="${label}: größer" ${value >= hi - 1e-6 ? 'disabled' : ''}>${HO.icon('plus', 'sm')}</button></div>`
+        return `<div style="margin-top:2px">${step('symsize', 'Größe', box.size, SYMBOL_MIN, SYMBOL_MAX)}
+          ${step('symwidth', 'Breite', width, box.size * STRETCH_MIN, box.size * STRETCH_MAX)}
+          ${step('symheight', 'Höhe', box.size, Math.max(SYMBOL_MIN, width / STRETCH_MAX), Math.min(SYMBOL_MAX, width / STRETCH_MIN))}</div>
+          <div class="row wrap g8" style="margin-top:8px"><span class="small muted fp-symlabel">Drehung</span>
+            <button class="btn sm" data-act="symturn" data-v="-1" title="Nach links drehen (45°-Schritte)" aria-label="Nach links drehen">${HO.icon('minus', 'sm')}</button>
+            <b class="fp-symsize">${box.rot}°</b>
+            <button class="btn sm" data-act="symturn" data-v="1" title="Nach rechts drehen (45°-Schritte)" aria-label="Nach rechts drehen">${HO.icon('plus', 'sm')}</button></div>
+          ${box.stretch !== 1 ? `<div class="row wrap g8" style="margin-top:10px"><button class="btn sm" data-act="symratio" title="Breite und Höhe wieder im Verhältnis der Zeichnung">Seitenverhältnis zurücksetzen</button></div>` : ''}
+          <p class="small muted" style="margin:8px 0 0">Auch direkt im Plan: Ecke des Rahmens = Größe, Mitte rechts = Breite, Mitte unten = Höhe, der Knopf über dem Rahmen dreht frei (rastet bei 45° ein, mit Umschalttaste in 15°-Schritten). Die Linien bleiben gleich stark, runde Enden bleiben rund.</p>`
+      }
+      // Brightness of a light of a load in per cent (100 is not stored).
+      const loadBrightness = l => clamp(Math.round(+l.brightness || 100), 10, 100)
+      // Panel of a load (since 0.29): name, kind, the device it hangs on, light colour and brightness of a light, symbol.
+      function loadPanelHTML(l, db) {
+        const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp, box = symbolBox(l, 1 / st.ppu), list = carriers(), carrier = carrierOf(l, db)
+        const gone = l.device_id && !list.some(d => d.id === l.device_id)
+        return `<div class="fp-panel"><div class="row between"><h4>Verbraucher</h4>
+            <button class="btn sm ghost danger" data-act="delete">${HO.icon('trash', 'sm')} Löschen</button></div>
+          <label class="field" style="margin-top:10px"><span>Name</span><input type="text" data-f="lname" maxlength="40" placeholder="${HO.esc(kind.label)}" value="${HO.esc(l.name || '')}" autocomplete="off"></label>
+          <label class="field"><span>Art</span><select data-f="lkind">${Object.keys(LOAD_KINDS).map(k =>
+            `<option value="${k}" ${k === l.kind ? 'selected' : ''}>${HO.esc(LOAD_KINDS[k].label)}</option>`).join('')}</select></label>
+          <label class="field"><span>Hängt an</span><select data-f="ldev"><option value="">Keinem Gerät</option>${list.map(d =>
+            `<option value="${HO.esc(d.id)}" ${d.id === l.device_id ? 'selected' : ''}>${HO.esc(d.name)}${d.room ? ' · ' + HO.esc(d.room) : ''}</option>`).join('')}
+            ${gone ? `<option value="${HO.esc(l.device_id)}" selected>Gerät nicht mehr vorhanden</option>` : ''}</select>
+            <span class="hint">${carrier ? `Gerade: ${HO.esc(HO.devState(carrier))} – der Verbraucher ist an, solange es an ist.` : 'Ein Zwischenstecker, Schaltaktor oder eine Lampe, die ComfyOS schaltet. Ohne Gerät bleibt er aus.'}</span></label>
+          ${kind.light && !kind.kelvin ? `<label class="field"><span>Lichtfarbe</span><select data-f="ltone">${Object.keys(LOAD_TONES).map(k =>
+            `<option value="${k}" ${(l.tone || 'warm') === k ? 'selected' : ''}>${LOAD_TONES[k][0]} (${LOAD_TONES[k][1]} K)</option>`).join('')}</select></label>` : ''}
+          ${kind.light ? `<label class="field"><span>Helligkeit: <b data-lbri-val>${loadBrightness(l)} %</b></span>
+            <input type="range" data-f="lbri" min="10" max="100" step="5" value="${loadBrightness(l)}" aria-label="Helligkeit"></label>` : ''}
+          ${symbolPicker(HO.planSymbols[l.furniture] ? l.furniture : '', 'Standard', HO.icon(kind.icon), false)}
+          ${box ? symbolControlsHTML(box) : ''}
+          <p class="small muted" style="margin:10px 0 0">Nur für das Bild: ein Verbraucher erscheint in keiner Liste, keiner Szene und keinem Flow
+            und schaltet nichts. In der Ansicht öffnet Antippen das Gerät, an dem er hängt. Sein Licht und seine Schallwellen zeigt die Ansicht mit „Effekte“.</p></div>`
+      }
       // Second line of the toolbar: the floors to switch between (bottom to top), "add a floor" and – with a
       // neighbouring floor – the switches for shining through and snapping.
       function floorBarHTML() {
@@ -2113,7 +2268,7 @@
         if (st.newFloor) panel = newFloorHTML()
         else if (st.msel.length) {
           const cnt = t => st.msel.filter(x => x.type === t).length
-          const parts = [['room', 'Raum', 'Räume'], ['wall', 'Wand', 'Wände'], ['open', 'Element', 'Elemente'], ['deck', 'Balkon', 'Balkone'], ['stair', 'Treppe', 'Treppen'], ['dev', 'Gerät', 'Geräte'], ['group', 'Gruppe', 'Gruppen']]
+          const parts = [['room', 'Raum', 'Räume'], ['wall', 'Wand', 'Wände'], ['open', 'Element', 'Elemente'], ['deck', 'Balkon', 'Balkone'], ['stair', 'Treppe', 'Treppen'], ['dev', 'Gerät', 'Geräte'], ['group', 'Gruppe', 'Gruppen'], ['load', 'Verbraucher', 'Verbraucher']]
             .map(([t, one, many]) => [cnt(t), one, many]).filter(([n]) => n).map(([n, one, many]) => `${n} ${n === 1 ? one : many}`)
           panel = `<div class="fp-panel"><div class="row between"><h4>Auswahl</h4><div class="row">
               <button class="btn sm ghost" data-act="selnone">Aufheben</button>
@@ -2184,25 +2339,14 @@
             <div class="fp-gm">${it.members.map(id => db[id] ? `<div class="row between"><span class="row">${HO.icon(db[id].kind, 'sm')}${HO.esc(db[id].name)}</span>
               <button class="btn sm" data-act="gout" data-v="${HO.esc(id)}">Herauslösen</button></div>` : '').join('')}</div>
             <p class="small muted" style="margin:10px 0 0">Gerät auf die Gruppe ziehen = hinzufügen · Herauslösen = wieder einzeln platzieren.</p></div>`
+        } else if (st.sel && st.sel.type === 'load' && it) {
+          panel = loadPanelHTML(it, db)
         } else if (st.sel && st.sel.type === 'dev') {
           const d = db[st.sel.id], entry = st.plan.devices[st.sel.id] || {}, box = d && !dockedTo(d.id) && symbolBox(entry, 1 / st.ppu)
           if (d) panel = `<div class="fp-panel"><div class="row between"><div><b>${HO.esc(d.name)}</b><div class="small muted">${HO.esc(d.room)} · ${HO.esc(HO.kindLabel[d.kind] || '')}</div></div>
             <button class="btn sm" data-act="unplace">Vom Plan nehmen</button></div>
             ${dockedTo(d.id) ? '' : symbolPicker(HO.planSymbols[entry.furniture] ? entry.furniture : '', 'Standard', HO.icon(d.kind), false)}
-            ${box ? (() => {
-              // size (proportion stays), width and height on their own (since 0.28) – the finger needs no handle
-              const width = box.size * box.stretch
-              const step = (act, label, value, lo, hi) => `<div class="row wrap g8" style="margin-top:8px"><span class="small muted fp-symlabel">${label}</span>
-                <button class="btn sm" data-act="${act}" data-v="-1" title="${label}: kleiner" aria-label="${label}: kleiner" ${value <= lo + 1e-6 ? 'disabled' : ''}>${HO.icon('minus', 'sm')}</button>
-                <b class="fp-symsize">${Math.round(value * 100)} %</b>
-                <button class="btn sm" data-act="${act}" data-v="1" title="${label}: größer" aria-label="${label}: größer" ${value >= hi - 1e-6 ? 'disabled' : ''}>${HO.icon('plus', 'sm')}</button></div>`
-              return `<div style="margin-top:2px">${step('symsize', 'Größe', box.size, SYMBOL_MIN, SYMBOL_MAX)}
-                ${step('symwidth', 'Breite', width, box.size * STRETCH_MIN, box.size * STRETCH_MAX)}
-                ${step('symheight', 'Höhe', box.size, Math.max(SYMBOL_MIN, width / STRETCH_MAX), Math.min(SYMBOL_MAX, width / STRETCH_MIN))}</div>
-              <div class="row wrap g8" style="margin-top:10px"><button class="btn sm" data-act="symturn" title="Um 45° drehen">${HO.icon('refresh', 'sm')} Drehen</button>
-                ${box.stretch !== 1 ? `<button class="btn sm" data-act="symratio" title="Breite und Höhe wieder im Verhältnis der Zeichnung">Seitenverhältnis zurücksetzen</button>` : ''}</div>
-              <p class="small muted" style="margin:8px 0 0">Auch direkt im Plan: Ecke des Rahmens = Größe, Mitte rechts = Breite, Mitte unten = Höhe. Die Linien bleiben dabei gleich stark.</p>`
-            })() : ''}
+            ${box ? symbolControlsHTML(box) : ''}
             ${levels().length > 1 ? `<label class="field" style="margin-top:12px"><span>Stockwerk</span><select data-f="devfloor">${levels().slice().reverse().map(f =>
               `<option value="${HO.esc(f.id)}" ${f === st.plan.floor ? 'selected' : ''}>${HO.esc(floorLabel(f))}</option>`).join('')}</select>
               <span class="hint">Ein anderes Stockwerk wählen = das Gerät zieht dorthin um und steht dort frei an derselben Stelle.</span></label>` : ''}
@@ -2430,7 +2574,8 @@
           ...st.plan.stairs.map(t => ({ type: 'stair', id: t.id })),
           ...st.plan.rooms.map(r => ({ type: 'room', id: r.id })),
           ...st.plan.openings.map(o => ({ type: 'open', id: o.id })), ...st.plan.groups.map(g => ({ type: 'group', id: g.id })),
-          ...Object.keys(st.plan.devices).filter(id => !dockedTo(id)).map(id => ({ type: 'dev', id }))]
+          ...Object.keys(st.plan.devices).filter(id => !dockedTo(id)).map(id => ({ type: 'dev', id })),
+          ...st.plan.loads.map(l => ({ type: 'load', id: l.id }))]
         render()
       }
       // Add an element to the multi-selection or remove it from it (Shift/Ctrl+click).
@@ -2453,7 +2598,8 @@
           ...layout().filter(it => it.room && it.face.poly.every(inR)).map(it => ({ type: 'room', id: it.room.id })),
           ...st.plan.openings.filter(o => inR(o.a) && inR(o.b)).map(o => ({ type: 'open', id: o.id })),
           ...st.plan.groups.filter(g => inR([g.x, g.y])).map(g => ({ type: 'group', id: g.id })),
-          ...Object.entries(st.plan.devices).filter(([id, q]) => !dockedTo(id) && inR([q.x, q.y])).map(([id]) => ({ type: 'dev', id }))]
+          ...Object.entries(st.plan.devices).filter(([id, q]) => !dockedTo(id) && inR([q.x, q.y])).map(([id]) => ({ type: 'dev', id })),
+          ...st.plan.loads.filter(l => inR([l.x, l.y])).map(l => ({ type: 'load', id: l.id }))]
         st.sel = out.length === 1 ? out[0] : null
         st.msel = out.length > 1 ? out : []
       }
@@ -2482,15 +2628,17 @@
         const groups = st.plan.groups.filter(g => gs.has(g.id) || inSel([g.x, g.y]))
         // stairs: selected ones and those standing in a selected room
         const picked = has('stair'), stairs = st.plan.stairs.filter(t => picked.has(t.id) || inSel(midOf(t.a, t.b)))
+        // loads (since 0.29): selected ones and those standing in a selected room – like free devices
+        const ls = has('load'), loads = st.plan.loads.filter(l => ls.has(l.id) || inSel([l.x, l.y]))
         // fasten room anchors to the corners that move (along) – otherwise a deformed neighbouring room loses name and link
         const roomRefs = lay.filter(it => it.room).map(it => ({ room: it.room, refs: it.face.poly.map(p => jointAt(p)[0]).filter(Boolean) }))
-        return { V: [...V.values()], bends, opAff: [...opAff], carry, devs, groups, stairs, roomRefs }
+        return { V: [...V.values()], bends, opAff: [...opAff], carry, devs, groups, stairs, loads, roomRefs }
       }
       // Frame around everything that belongs to the multi-selection – or null.
       function mselBox(T) {
         const pts = [...T.V.map(v => v.w.pts[v.i]), ...T.opAff.flatMap(o => [o.a, o.b]),
           ...T.devs.map(id => [st.plan.devices[id].x, st.plan.devices[id].y]), ...T.groups.map(g => [g.x, g.y]),
-          ...T.stairs.reduce((list, t) => list.concat([t.a, t.b]), [])]
+          ...T.stairs.reduce((list, t) => list.concat([t.a, t.b]), []), ...T.loads.map(l => [l.x, l.y])]
         return pts.length ? bbox(pts) : null
       }
       // Start moving or scaling the multi-selection: remember the starting position of all affected points.
@@ -2499,7 +2647,7 @@
         if (!box) return false
         const O = { V: T.V.map(v => [...v.w.pts[v.i]]), bends: T.bends.map(b => [...b.w.bend[b.i]]), op: T.opAff.map(o => ({ a: [...o.a], b: [...o.b] })),
           dev: T.devs.map(id => [st.plan.devices[id].x, st.plan.devices[id].y]), grp: T.groups.map(g => [g.x, g.y]),
-          stair: T.stairs.map(t => ({ a: [...t.a], b: [...t.b] })) }
+          stair: T.stairs.map(t => ({ a: [...t.a], b: [...t.b] })), load: T.loads.map(l => [l.x, l.y]) }
         st.drag = { mode, T, O, box, start: p, moved: false, ...extra }
         return true
       }
@@ -2513,6 +2661,7 @@
         T.devs.forEach((id, k) => { const q = clampPt(f(O.dev[k])); st.plan.devices[id] = { ...st.plan.devices[id], x: q[0], y: q[1] } })
         T.groups.forEach((g, k) => { const q = clampPt(f(O.grp[k])); g.x = q[0]; g.y = q[1] })
         T.stairs.forEach((t, k) => { t.a = clampPt(f(O.stair[k].a)); t.b = clampPt(f(O.stair[k].b)) })
+        T.loads.forEach((l, k) => { const q = clampPt(f(O.load[k])); l.x = q[0]; l.y = q[1] })   // a load keeps its size, like a symbol
         for (const r of T.roomRefs) {
           const poly = r.refs.map(v => v.w.pts[v.i])
           if (poly.length >= 3) { const c = labelPoint(poly); r.room.x = r3(c[0]); r.room.y = r3(c[1]) }
@@ -2555,6 +2704,8 @@
         const gone = has('stair')
         st.plan.stairs = st.plan.stairs.filter(t => !gone.has(t.id))
         st.plan.openings = st.plan.openings.filter(o => !os.has(o.id))
+        const ls = has('load')
+        st.plan.loads = st.plan.loads.filter(l => !ls.has(l.id))
         for (const id of ds) delete st.plan.devices[id]
         for (const id of gs) dissolve(id)
         st.msel = []; st.sel = null
@@ -2569,7 +2720,8 @@
         else if (st.sel.type === 'group') { dissolve(st.sel.id); save(); return render() }
         else if (st.sel.type === 'room') return HO.toast('Räume entstehen aus Wänden – zum Entfernen eine Wand löschen.', 'warn')
         else {
-          const key = st.sel.type === 'wall' ? 'walls' : st.sel.type === 'deck' ? 'decks' : st.sel.type === 'stair' ? 'stairs' : 'openings'
+          const key = st.sel.type === 'wall' ? 'walls' : st.sel.type === 'deck' ? 'decks' : st.sel.type === 'stair' ? 'stairs'
+            : st.sel.type === 'load' ? 'loads' : 'openings'
           st.plan[key] = st.plan[key].filter(x => x.id !== st.sel.id)
         }
         st.sel = null
@@ -2623,7 +2775,7 @@
           if (!mod && b && p[0] >= b.x - pad && p[0] <= b.x + b.w + pad && p[1] >= b.y - pad && p[1] <= b.y + b.h + pad) { mselStart('mmove', p); return }
           if (!mod) st.msel = []   // outside the frame: lift the selection, then as usual
         }
-        if (mod && ['wall', 'open', 'dev', 'group', 'room', 'deck', 'stair'].includes(kind) && target.dataset.id) return toggleSel(kind, target.dataset.id)
+        if (mod && ['wall', 'open', 'dev', 'group', 'room', 'deck', 'stair', 'load'].includes(kind) && target.dataset.id) return toggleSel(kind, target.dataset.id)
         // selecting
         const it = selItem()
         if ((kind === 'vtx' || kind === 'mid') && it) {
@@ -2642,15 +2794,28 @@
           st.drag = { mode: 'smove', it: stair, start: p, orig: { a: [...stair.a], b: [...stair.b] }, moved: false }
           return render()
         }
-        if (kind === 'symscale' && st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id]) {
-          // frame of a plan symbol: the corner sets the size by its distance to the centre, a side the width or the height
-          // by the distance along the turned axis of the symbol
-          const e = st.plan.devices[st.sel.id], c = target.dataset.c || 'se', box = symbolBox(e, 1 / st.ppu)
+        if (kind === 'symscale' && symEntry()) {
+          // frame of a plan symbol (a device or a load): the corner sets the size by its distance to the centre, a side
+          // the width or the height by the distance along the turned axis of the symbol
+          const e = symEntry(), c = target.dataset.c || 'se', box = symbolBox(e, 1 / st.ppu)
           const a = (box ? box.rot : 0) * Math.PI / 180, axis = c === 'e' ? [Math.cos(a), Math.sin(a)] : c === 's' ? [-Math.sin(a), Math.cos(a)] : null
           const along = q => axis ? Math.abs((q[0] - e.x) * axis[0] + (q[1] - e.y) * axis[1]) : dist(q, [e.x, e.y])
           const size = clamp(Number(e.size) || 1, SYMBOL_MIN, SYMBOL_MAX)
-          st.drag = { mode: 'symscale', id: st.sel.id, c, along, size, width: size * clamp(Number(e.stretch) || 1, STRETCH_MIN, STRETCH_MAX), reach: Math.max(along(p), EPS), moved: false }
+          st.drag = { mode: 'symscale', sel: { ...st.sel }, c, along, size, width: size * clamp(Number(e.stretch) || 1, STRETCH_MIN, STRETCH_MAX), reach: Math.max(along(p), EPS), moved: false }
           return
+        }
+        if (kind === 'symrot' && symEntry()) {
+          st.drag = { mode: 'symrot', sel: { ...st.sel }, moved: false }   // knob above the frame: turn the plan symbol
+          return
+        }
+        if (tool === 'load' && kind !== 'load') return addLoad(p)       // tool "Verbraucher": a new one at this place
+        if (kind === 'load') {
+          const l = loadById(target.dataset.id)
+          if (l) {
+            st.sel = { type: 'load', id: l.id }
+            st.drag = { mode: 'lmove', it: l, off: [p[0] - l.x, p[1] - l.y], moved: false }
+            return render()
+          }
         }
         if (kind === 'dev') {
           const id = target.dataset.id, o = dockedTo(id), dp = o && st.dockPos && st.dockPos.get(id)
@@ -2699,12 +2864,14 @@
         st.msel = uniq.length > 1 ? uniq : []
       }
 
-      // tapping in the view: device → details, window/door/radiator → linked device, room → room, otherwise background
+      // tapping in the view: device → details, window/door/radiator → linked device, load → the device it hangs on
+      // (since 0.29), room → room, otherwise background
       function viewTap(target) {
         const kind = target && target.dataset.kind
         // stairs change the floor: a staircase leads up, the stairwell of the floor below leads down
         if (kind === 'stair' || kind === 'stairwell') { stepFloor(kind === 'stair' ? 1 : -1); return }
         if (kind === 'dev') { const d = devById()[target.dataset.id]; if (d && opts.onDeviceClick) return opts.onDeviceClick(d) }
+        else if (kind === 'load') { const d = carrierOf(loadById(target.dataset.id), devById()); if (d && opts.onDeviceClick) return opts.onDeviceClick(d) }
         else if (kind === 'open') {
           // one docked device: its details; several: all of them together, like a group
           const o = st.plan.openings.find(x => x.id === target.dataset.id), list = o ? dockedDevices(o, devById()) : []
@@ -2828,13 +2995,24 @@
           d.merge = nd ? null : mergeTarget(d.id, raw)
           d.moved = true
         } else if (d.mode === 'symscale') {
-          const e = st.plan.devices[d.id]
+          const e = symEntryOf(d.sel)
           const f = d.along(p) / d.reach
           if (e && d.c === 'e') setSymbolSides(e, d.width * f, null)
           else if (e && d.c === 's') setSymbolSides(e, d.width, d.size * f)
           else if (e) setSymbolSize(e, d.size * f)
           if (e) d.moved = true
-        } else if (d.mode === 'gmove') {
+        } else if (d.mode === 'symrot') {
+          // the knob points to where the top of the symbol faces: whole degrees, near a multiple of 45° it snaps there,
+          // with Shift it goes in steps of 15°
+          const entry = symEntryOf(d.sel)
+          if (entry && dist(p, [entry.x, entry.y]) > EPS) {
+            const free = ((Math.round(Math.atan2(p[1] - entry.y, p[0] - entry.x) * 180 / Math.PI + 90) % 360) + 360) % 360
+            const near = Math.round(free / SYMBOL_TURN) * SYMBOL_TURN
+            const rot = (e.shiftKey ? Math.round(free / 15) * 15 : Math.abs(free - near) <= SYMBOL_SNAP ? near : free) % 360
+            if (rot) entry.rot = rot; else delete entry.rot
+            d.moved = true
+          }
+        } else if (d.mode === 'gmove' || d.mode === 'lmove') {      // a group or a load (since 0.29) moves freely
           d.it.x = clamp(r3(p[0] - d.off[0]), 0, W); d.it.y = clamp(r3(p[1] - d.off[1]), 0, H); d.moved = true
         }
         renderSVG()
@@ -2899,6 +3077,16 @@
           place([gr.x, gr.y])
           tip.innerHTML = `<b>${HO.esc(gr.name || 'Gruppe')}</b><div class="muted">${ms.length} Geräte</div>
             ${ms.map(x => `<div style="margin-top:4px">${HO.esc(x.name)} <span class="muted">· ${HO.esc(HO.devState(x))}</span></div>`).join('')}`
+          tip.classList.remove('hidden')
+          return
+        }
+        if (g && g.dataset.kind === 'load') {
+          // a load: its kind and the device it hangs on with that one's state (since 0.29)
+          const l = loadById(g.dataset.id), carrier = carrierOf(l, devById())
+          if (!l) { tip.classList.add('hidden'); return }
+          place([l.x, l.y])
+          tip.innerHTML = `<b>${HO.esc(l.name || (LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).label)}</b><div class="muted">Verbraucher · ${HO.esc((LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).label)}</div>
+            <div style="margin-top:4px">${carrier ? `an ${HO.esc(carrier.name)} · ${HO.esc(HO.devState(carrier))}` : 'mit keinem Gerät verknüpft'}</div>`
           tip.classList.remove('hidden')
           return
         }
@@ -2993,21 +3181,26 @@
         else if (act === 'unplace') { delete st.plan.devices[st.sel.id]; st.sel = null; save(); render() }
         else if (act === 'sym') {
           // symbol picker: plan symbol of the selected device (empty = standard bubble) or symbol of the selected group
-          const key = t.dataset.v || '', entry = st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id]
+          const key = t.dataset.v || '', entry = st.sel && symEntryOf(st.sel)
           if (entry) { if (key) entry.furniture = key; else { delete entry.furniture; delete entry.size; delete entry.rot; delete entry.stretch } }
           else if (it && st.sel.type === 'group') it.icon = key
           else return
           save(); render()
         }
         else if (['symsize', 'symwidth', 'symheight', 'symturn', 'symratio'].includes(act)) {
-          const entry = st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id], box = entry && symbolBox(entry, 1 / st.ppu)
+          const entry = st.sel && symEntryOf(st.sel), box = entry && symbolBox(entry, 1 / st.ppu)
           if (!box) return
           const by = t.dataset.v === '-1' ? -SYMBOL_STEP : SYMBOL_STEP
           if (act === 'symsize') setSymbolSize(entry, box.size + by)
           else if (act === 'symwidth') setSymbolSides(entry, box.size * box.stretch + by, null)
           else if (act === 'symheight') setSymbolSides(entry, null, box.size + by)
           else if (act === 'symratio') delete entry.stretch
-          else { const rot = ((Number(entry.rot) || 0) + SYMBOL_TURN) % 360; if (rot) entry.rot = rot; else delete entry.rot }
+          else {
+            // to the next multiple of 45° in that direction – from a free angle as well (since 0.29 both directions)
+            const turn = t.dataset.v === '-1' ? Math.ceil(box.rot / SYMBOL_TURN) - 1 : Math.floor(box.rot / SYMBOL_TURN) + 1
+            const rot = ((turn * SYMBOL_TURN) % 360 + 360) % 360
+            if (rot) entry.rot = rot; else delete entry.rot
+          }
           save(); render()
         }
         else if (act === 'oundock' && it && st.sel.type === 'open') {
@@ -3044,7 +3237,7 @@
           for (const f of levels()) {
             for (const w of f.walls.concat(f.decks)) { w.pts = w.pts.map(clampPt); w.bend = w.bend.map(c => c ? clampPt(c) : null) }
             for (const o of f.openings.concat(f.stairs)) { o.a = clampPt(o.a); o.b = clampPt(o.b) }
-            for (const d of [...Object.values(f.devices), ...f.groups]) { [d.x, d.y] = clampPt([d.x, d.y]) }
+            for (const d of [...Object.values(f.devices), ...f.groups, ...f.loads]) { [d.x, d.y] = clampPt([d.x, d.y]) }
           }
           return changed()
         }
@@ -3066,6 +3259,23 @@
           it.room_id = t.value || null
           if (it.room_id && (!prevLinked && /^Raum \d+$/.test(it.name))) it.name = roomById()[it.room_id].name
           save(); render()
+        } else if (t.dataset.f === 'lkind' && st.sel.type === 'load' && LOAD_KINDS[t.value]) {
+          // another kind: a symbol that was the one of the old kind becomes the one of the new kind (or the bubble)
+          const was = LOAD_KINDS[it.kind] || LOAD_KINDS.lamp, next = LOAD_KINDS[t.value]
+          if (it.furniture && it.furniture === was.symbol) {
+            if (next.symbol) it.furniture = next.symbol
+            else { delete it.furniture; delete it.size; delete it.rot; delete it.stretch }
+          }
+          it.kind = t.value
+          save(); render()
+        } else if (t.dataset.f === 'ldev' && st.sel.type === 'load') {
+          if (t.value) it.device_id = t.value; else delete it.device_id
+          save(); render()
+        } else if (t.dataset.f === 'ltone' && st.sel.type === 'load') {
+          if (LOAD_TONES[t.value] && t.value !== 'warm') it.tone = t.value; else delete it.tone
+          save(); renderSVG()
+        } else if (t.dataset.f === 'lbri' && st.sel.type === 'load') {
+          save()
         } else if (t.dataset.f === 'odev' && st.sel.type === 'open') {
           // dock a further device to the selected element (a device from a group leaves its group for that)
           const id = t.value, grp = id && groupOf(id)
@@ -3099,6 +3309,17 @@
           renderSVG(); return
         }
         if (t.dataset.f === 'gname') { const g = selItem(); if (g) { g.name = t.value.slice(0, 40); save(); renderSVG() } return }
+        if ((t.dataset.f === 'lname' || t.dataset.f === 'lbri') && st.sel && st.sel.type === 'load') {   // a load (since 0.29)
+          const l = selItem()
+          if (!l) return
+          if (t.dataset.f === 'lname') { const name = t.value.replace(/\s+/g, ' ').trim().slice(0, 40); if (name) l.name = name; else delete l.name }
+          else {
+            const level = clamp(Math.round(+t.value || 100), 10, 100), shown = t.closest('.field') && t.closest('.field').querySelector('[data-lbri-val]')
+            if (level < 100) l.brightness = level; else delete l.brightness
+            if (shown) shown.textContent = level + ' %'
+          }
+          save(); renderSVG(); return
+        }
         if (t.dataset.f !== 'name' || !st.sel || st.sel.type !== 'room') return
         const r = selItem()
         if (!r) return

@@ -158,8 +158,11 @@ def run(p, engine, name, **ctx_args):
     el = page.evaluate("(() => { const g = HO.state.overview.geo; return HO.sunPos(new Date(), g[0], g[1]).el })()")
     if el > 1 and not page.locator("#fpHost .fp-shadow rect[mask]").count():
         bad(f"sun {el:.0f}° high, but no shadow in the floor plan")
-    if not page.locator("#fpHost .fp-devshadow circle[clip-path]").count():
+    # a bubble casts a disc, a plan symbol its own outline (since 0.29, `.sym`) – both clipped to their room
+    if not page.locator("#fpHost .fp-devshadow circle[clip-path], #fpHost .fp-devshadow .sym[clip-path]").count():
         bad("device symbols without a clipped shadow")
+    if page.locator("#fpHost .fp-dev.symbol").count() and not page.locator("#fpHost .fp-devshadow .sym[clip-path] path").count():
+        bad("a plan symbol casts no shadow of its own outline")
     page.wait_for_selector('#fpHost .fp-group[data-id="g1"]')
     badge = page.evaluate("""() => { const g = document.querySelector('#fpHost .fp-group[data-id="g1"]'),
         l = document.querySelector('#fpHost .fp-group[data-id="g2"]');
