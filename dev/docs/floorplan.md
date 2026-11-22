@@ -4,6 +4,20 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.27.4 – free bubbles, sound of further boxes, gentler frost
+
+- **Bubbles stay free:** the effect canvas lies above the SVG, so since 0.27 the inside layer (window light, glow, sound
+  waves) veiled the device bubbles – the plan seemed to shine through the symbol. `floorplan.js` collects every device
+  bubble, group bubble and docked dot while drawing (`st.bubbles`, plan units) and hands them over as
+  `indoor.bubbles`; `drawIndoor` punches them out last (`destination-out`, radius + 1.5 px). Plan symbols stay lit.
+- **Further boxes play along:** a surround speaker, sub or second box of a stereo pair has no `playing` of its own. Its
+  row names its main device (`part_of`, plugin API revision 8, resolved by `device_merge.merge` to the row id shown –
+  the Home Base may lend it); `indoorNow` takes that device's `playing`, `muted` and `volume` for the box. No guessing
+  from `media`.
+- **Frost begins gently:** `weather.FROST_MIN` 0.05 (before 0.3) – at 4 °C only a hint, linear to the full frost at
+  0 °C. In the browser number of patches (15…100 %), their opacity (25…100 %) and the glints (25…100 %) follow
+  `frost_level`; at 0 °C everything is as before.
+
 ## Since 0.27.1 – light through doors, shafts in the window light, heat haze, worn ice, mirroring puddles
 
 - **Less colour in the sunlight:** `sunColor` mixes only 5 % (noon) to 35 % (sun at the horizon) of `--fx-sun` into
@@ -90,7 +104,7 @@ when something was added.
   reaches out while it fades in (`grow`), they fan out a little (`RAY_FAN`), sway, carry a soft glow around their core,
   add up where they cross (`lighter`) and dust motes drift and glint in them. The shaft images hold fine filaments of
   their own length, so the end of a ray frays. Counts: 11 clear, 9 partly, 4 overcast, 3 storm.
-- **Hoarfrost from 4 °C (`weather.FROST_C`), `fx.frost_level`:** additive field 0…1 – 0.3 at 4 °C, 1 from 0 °C
+- **Hoarfrost from 4 °C (`weather.FROST_C`), `fx.frost_level`:** additive field 0…1 – 0.05 at 4 °C (`FROST_MIN`, before 0.27.4 0.3), 1 from 0 °C
   (`FROST_FULL_C`); fewer and paler patches and fewer glints in mild cold. The patches are frost flowers now (`rime`:
   six ferns around one point, side branches at 60° that branch once more, small ice stars, needles; drawn bold because
   the image is shown far smaller than built), the glints small four-pointed stars.

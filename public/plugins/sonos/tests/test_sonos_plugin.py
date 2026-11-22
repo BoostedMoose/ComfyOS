@@ -336,6 +336,8 @@ async def plugin_against_household() -> None:
     assert rear.kind == "media" and rear.online and rear.capabilities == [] and rear.room_hint == "Wohnzimmer"
     assert rear.state == {} and rear.media.title == "Deutschlandfunk" and rear.media.favorites == [], "no state: no capability"
     assert right.media.title == "Lied <eins>" and right.details["Gehört zu"] == "Küche", "each box shows the track of its own room"
+    assert rear.part_of == living.id and right.part_of == kitchen.id, "a box names the device of its room (floor plan)"
+    assert living.part_of is None and kitchen.part_of is None and bath.part_of is None
     assert living.model == "Sonos Beam" and living.room_hint == "Wohnzimmer" and living.details["Boxen in diesem Raum"] == "3"
     capabilities = {capability.key: capability for capability in living.capabilities}
     assert sorted(capabilities) == ["favorite", "live_audio", "muted", "next", "playing", "previous", "volume"]

@@ -570,7 +570,7 @@ memory through `egress._lan_transport`, SSDP through `egress._datagram_factory`)
 1. Without Sonos: list of the Home Base unchanged, the plugin knows the number of its speakers, no search by itself
 2. Search only in the home network (foreign sender, other search target, description at another address discarded); one room =
    one device (name and room from the Home Base, state and control direct), surround speakers are devices of their own
-   without control that show what their room plays (since 0.22.2),
+   without control that show what their room plays (since 0.22.2; `part_of` points to the row of their room since 0.27.4),
    missing things are orphaned, unknown things are adopted; view for plugins (`DeviceView.media`)
 3. Switching: playback, volume, mute, favourite, track change at the right speaker; text in the log,
    live message with playback; nonsense and orphaned devices rejected

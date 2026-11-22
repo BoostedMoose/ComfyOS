@@ -63,6 +63,9 @@ Revision history
     7   buttons and remotes: device kind ``button``, :class:`Button`, ``Device.buttons``,
         ``PluginContext.button_pressed`` with ``PRESS_SHORT`` / ``PRESS_LONG`` / ``PRESS_DOUBLE``;
         state key ``illuminance`` (lux) (ComfyOS 0.23)
+    8   ``Device.part_of``: a further part of another device of the same plugin (the surround
+        speaker of a sound bar, the second box of a stereo pair) names that device; it plays with
+        it on the floor plan (ComfyOS 0.27.4)
 """
 from __future__ import annotations
 
@@ -74,7 +77,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Mapping, Protocol, Sequence
 
 API_VERSION = 1
-API_REVISION = 7
+API_REVISION = 8
 
 # ---------------------------------------------------------------------------
 # Vocabulary
@@ -306,6 +309,10 @@ class Device:
     # True when this plugin only relays the device and another system controls it directly.
     # A relayed device keeps its id, name and room; state and commands come from the direct device.
     relayed: bool = False
+    # For a further part of another device of this plugin that has no controls of its own – the surround speaker or
+    # the sub of a sound bar, the second box of a stereo pair: the id of that device (as this plugin reports it). The
+    # part plays, sounds and is muted exactly when that device is (floor plan). None = a device of its own.
+    part_of: str | None = None
     # True for devices found on a hub that the user has not added to ComfyOS yet. They appear as
     # "new" in the plugin's settings and become real devices once the user adopts them.
     discovered: bool = False

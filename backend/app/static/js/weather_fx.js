@@ -78,7 +78,7 @@
    worn ice that grow into one sheet – cloudy, with bundles of fine scratches, splats and a speckle of crystals –
    lying fixed on the ground (like the puddles, never in the house, but on balconies), subtle, thinner on the sunny
    side of the house than in its shadow; and crystals that glint as small four-pointed stars – more in sunlight.
-   fx.frost_level (0…1) thins it out in mild cold.
+   fx.frost_level (0…1) thins it out in mild cold: only a hint of it at 4 °C, full at 0 °C.
 
    Puddles (reworked in 0.27 and 0.27.1): irregular with small pools beside them, never running into each other; wet
    ground is darker than dry, and the water mirrors the sky – clouds that drift through it with the wind, a few
@@ -551,7 +551,7 @@
     }
     const amount = () => (level === 'subtle' ? 0.55 : 1) * STEPS[step].amount
     // How much hoarfrost lies (0…1): fx.frost_level in mild cold, full without it (previews, older weather data).
-    const frostOf = () => !fx || !fx.frost ? 0 : typeof fx.frost_level === 'number' ? clamp(fx.frost_level, 0.2, 1) : 1
+    const frostOf = () => !fx || !fx.frost ? 0 : typeof fx.frost_level === 'number' ? clamp(fx.frost_level, 0.05, 1) : 1
     // How strongly the wind swells and subsides: as far as the measured gusts lie above the mean wind (fx.gust).
     function gustiness() {
       const calm = fx.storm ? 0.35 : 0.15
@@ -613,7 +613,7 @@
       const dot = (lo, hi) => () => ({ u: Math.random(), v: Math.random(), r: rnd(lo, hi), a: rnd(0.3, 0.85), ph: rnd(0, TAU), sp: rnd(0.4, 1.6) })
       fit(stars, Math.round(clamp(area / 5200, 14, 110) * sky * soft), dot(0.5, 1.25))
       // (since 0.27.3 few, small and rare: a glint now and then, no glitter)
-      fit(glints, fx.frost ? Math.round(clamp(area / 18000, 4, 26) * soft * (0.5 + 0.5 * frostOf())) : 0, dot(1.3, 2.6))
+      fit(glints, fx.frost ? Math.round(clamp(area / 18000, 4, 26) * soft * (0.25 + 0.75 * frostOf())) : 0, dot(1.3, 2.6))
       const now = performance.now()
       if (!nextFlash) nextFlash = now + rnd(2000, 6000)
       if (!nextMeteor) nextMeteor = now + rnd(20000, 90000)
@@ -1007,10 +1007,10 @@
       // fewer of them lie, and paler.
       let frostShown = 0
       if (fx.frost && frost.length && mask.view) {
-        const v = mask.view, cold = frostOf(), some = Math.ceil(frost.length * (0.45 + 0.55 * cold))
-        // subtle (since 0.27.1). The sun thins the frost: on the sunny side of the house less of it is left than in
-        // its shadow.
-        const strength = FROST_ALPHA * k * (1 - 0.3 * dark) * (0.6 + 0.4 * cold)
+        const v = mask.view, cold = frostOf(), some = Math.ceil(frost.length * (0.15 + 0.85 * cold))
+        // subtle (since 0.27.1); at 4 °C only a hint of it, at 0 °C the full frost (since 0.27.4). The sun thins the
+        // frost: on the sunny side of the house less of it is left than in its shadow.
+        const strength = FROST_ALPHA * k * (1 - 0.3 * dark) * (0.25 + 0.75 * cold)
         for (const p of frost.slice(0, some)) {
           const half = p.r * v.s / FROST_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s, far = half * 1.42   // turned: the diagonal
           if (x + far < box.x || x - far > bx1 || y + far < box.y || y - far > by1) continue
@@ -1735,6 +1735,15 @@
         c.translate(b.x, b.y); c.rotate(b.turn); c.scale(1, 0.3)
         glow(0, 0, b.len * 0.56, b.tint, 0.26 * b.a * e.k)
         c.restore()
+      }
+      // 4) The bubbles of the devices stay free (since 0.27.4): the canvas lies above the SVG, light and sound waves
+      //    would otherwise veil them and the plan would seem to shine through the symbol.
+      if (indoor.bubbles && indoor.bubbles.length) {
+        c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.fillStyle = '#000'
+        c.beginPath()
+        for (const b of indoor.bubbles) { const p = at([b.x, b.y]), r = b.r * v.s + 1.5; c.moveTo(p[0] + r, p[1]); c.arc(p[0], p[1], r, 0, TAU) }
+        c.fill()
+        c.globalCompositeOperation = 'source-over'
       }
       c.restore()
     }

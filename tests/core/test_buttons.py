@@ -54,7 +54,7 @@ record.plugin = KnopfPlugin(context)
 plugins._records["knopf"] = record
 knopf: KnopfPlugin = record.plugin
 
-assert plugin_api.API_REVISION == 7 and "button" in plugin_api.DEVICE_KINDS
+assert plugin_api.API_REVISION >= 7 and "button" in plugin_api.DEVICE_KINDS
 assert plugin_api.PRESS_KINDS == ("short", "long", "double") and plugin_api.STATE_ILLUMINANCE == "illuminance"
 assert "illuminance" in flow_catalog.PROPS and flow_catalog.PROPS["illuminance"]["unit"] == "lx"
 assert "illuminance" in core.LIVE_FIELDS and "illuminance" in core.VIEW_STATE and flow_engine.check_specs() == []

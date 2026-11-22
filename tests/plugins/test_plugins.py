@@ -106,7 +106,7 @@ assert [(e["key"], e["hosts"], e["scope"]) for e in matter_manifest.egress] == [
 assert good.helper == "" and good.access == [], "without a declaration: no helper program, no access"
 # UDP in the home network (revision 4): only on a LAN target, only with an explicit "udp": true
 sonos_manifest = plugins.read_manifest(PUBLIC / "plugins" / "sonos")
-assert sonos_manifest.api_revision == 6 and sonos_manifest.id_prefixes == ["sonosroom:"] and not sonos_manifest.secrets
+assert sonos_manifest.api_revision == 8 and sonos_manifest.id_prefixes == ["sonosroom:"] and not sonos_manifest.secrets
 assert [(e["key"], e["scope"], e["udp"]) for e in sonos_manifest.egress] == [("speakers", "lan", True)]
 assert manifest_error({"egress": [{"key": "x", "desc": "d", "scope": "lan", "udp": True}]}) == ""
 print("1 manifest: required fields, id = folder, API version and revision, entry point, prefixes, egress, settings, secrets,"
@@ -390,7 +390,7 @@ def setup(context):
 
     # "port closed" is an answer (the device is there), silence is not – the network plugin distinguishes by that
     assert client.portal.call(stream_error, "refused") == "ConnectionRefused" and client.portal.call(stream_error, "silent") == "DeviceUnreachable"
-    assert nctx.api_revision == plugin_api.API_REVISION == 7
+    assert nctx.api_revision == plugin_api.API_REVISION == 8
     enable("netz", False)
     assert {c["id"]: c for c in ok(client.get("/api/system/egress"))["connections"]}["plugin.netz.cloud"]["state"] == "off"
     print("8 egress: LAN target only into the home network, internet target only to declared hosts and in the register – for HTTP and"

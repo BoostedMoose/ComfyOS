@@ -152,7 +152,7 @@ WIND_MAX_KMH = 80.0    # km/h  -> wind = 1
 STORM_GUSTS_KMH = 60.0
 FROST_C = 4.0          # °C   -> hoarfrost if nothing falls (ground frost begins above freezing; since 0.27, before 0 °C)
 FROST_FULL_C = 0.0     # °C   -> frost_level = 1; at FROST_C it is FROST_MIN
-FROST_MIN = 0.3
+FROST_MIN = 0.05
 HEAT_C = 28.0          # °C   -> heat > 0 (only by day in sunshine)
 HEAT_MAX_C = 38.0      # °C   -> heat = 1
 

@@ -39,7 +39,7 @@ RESERVED = frozenset({"id", "name", "room", "room_id", "kind", "online", "status
                       "low_battery", "last_seen", "control", "control_item", "errors", "light", "values", "props", "plugin",
                       "source", "locked", "locked_by", "adopted", "custom_name", "link_missing", "missing_at",
                       "missing_plugin", "power_w", "energy_kwh", "local_room", "hb_room_id", "hb_room", "room_pending",
-                      "caps", "media", "buttons"})
+                      "caps", "media", "buttons", "part_of"})
 MEDIA_TEXT = 200                          # a text from the playback may be this long (title, artist …)
 MEDIA_LIST = 40                           # a row carries at most this many favourites or group members
 IMAGE_ID = r"^[A-Za-z0-9_.-]{1,120}$"     # form of an image id (route /api/media/image/<plugin>/<id>)
@@ -196,6 +196,8 @@ def _row(src: Source, d: Device) -> dict[str, Any]:
         row["media"] = media_dict(d.media, src.plugin_id)
     if d.buttons:
         row["buttons"] = buttons_list(d)
+    if d.part_of:
+        row["part_of"] = (src.plugin_id, str(d.part_of))     # resolved to the id of a row at the end of merge()
     row.update(_state(d))
     if _writable(d):
         row["control"] = {"plugin": src.plugin_id, "device_id": d.id}
@@ -216,6 +218,8 @@ def _overlay(row: dict[str, Any], src: Source, d: Device) -> None:
         row["media"] = media_dict(d.media, src.plugin_id)
     if d.buttons:
         row["buttons"] = buttons_list(d)
+    if d.part_of:
+        row["part_of"] = (src.plugin_id, str(d.part_of))
     if _writable(d):
         row["control"] = {"plugin": src.plugin_id, "device_id": d.id}
         row["control_item"] = f"{src.plugin_id}:{d.id}"
@@ -335,6 +339,15 @@ def merge(sources: list[Source], store: dict[str, Any],
                         "owner": r.get("missing_plugin") or ctl or r.get("plugin"),
                         "orphan": bool(r.get("link_missing")), "missing_at": r.get("missing_at")})
     rows = [r for r in rows if r["id"] not in hidden]
+
+    # a further part names its main device as its plugin knows it: point to the row that shows that device now
+    # (a hub may lend it its id) – or to nothing, if it is not shown
+    shown = {r["id"] for r in rows}
+    for r in rows:
+        part = r.pop("part_of", None)
+        main = index.get(part) if isinstance(part, tuple) else None
+        if main in shown and main != r["id"]:
+            r["part_of"] = main
 
     for r in rows:
         custom = names.get(r["id"])

@@ -87,6 +87,8 @@ with TestClient(main.app) as client:
         assert box["online"] and box.get("playing") is None and box["media"]["title"] == "Lied <b>eins</b>" and not box.get("link_missing")
         assert not box.get("control_item") and not any(c["key"] == "playing" for c in box["caps"]), "a box is not a speaker tile"
         assert box["media"]["favorites"] == []
+        assert box["part_of"] == HB_LIVING, "a box points to the row of its room – the id the Home Base lends it"
+    assert "part_of" not in living
     # a speaker that no longer exists at Sonos is orphaned
     assert rows[HB_CELLAR]["link_missing"] and rows[HB_CELLAR]["missing_plugin"] == "sonos" and "Sonos" in rows[HB_CELLAR]["status_detail"]
     # a room the Home Base does not know waits to be adopted

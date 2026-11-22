@@ -451,7 +451,8 @@ class SonosPlugin(Plugin):
         It has no capabilities and reports no state: the tile "Wiedergabe" and flows only know the room
         (ComfyOS takes a reported ``playing`` for a capability), and nothing can be sent to the box. It
         exists so the box can stand in its room and on the floor plan; while the room plays it carries
-        the track (``media``), otherwise nothing.
+        the track (``media``), otherwise nothing. ``part_of`` names the room's device: on the floor
+        plan the box plays exactly when its room plays, with the room's volume and mute.
         """
         state = self.states.get(room.uuid)
         return Device(
@@ -467,6 +468,7 @@ class SonosPlugin(Plugin):
             status_detail=None if state is not None else (SILENT_TEXT if self.silent else OFFLINE_DETAIL),
             link_keys=[LINK_PREFIX + box.uuid],
             discovered=True,
+            part_of=DEVICE_ID_PREFIX + room.uuid,
             details={"Gehört zu": room.name, "Sonos-ID": box.uuid},
         )
 

@@ -13,7 +13,8 @@ Connects Sonos speakers locally in the home network – without a Sonos account,
 
 Stereo pairs, surround speakers and subwoofers belong to the room of their main speaker. Each of these further boxes
 is a device of its own without control ("Wohnzimmer (hinten links)", "Küche (rechts)"): it can be placed on the floor
-plan and stands in its room, and it shows what its room plays. Playback and volume are controlled through the room.
+plan and stands in its room, and it shows what its room plays. Playback and volume are controlled through the room. On the floor plan a box sends
+sound waves exactly while its room plays (plugin 1.2.1: `Device.part_of`).
 
 ## Setting up
 

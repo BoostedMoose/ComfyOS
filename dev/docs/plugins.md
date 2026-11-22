@@ -42,6 +42,15 @@ when something was added.
   tile (`routes.read_status`) still asks fresh. Rule for plugins of hubs: never poll a hub for its whole state every few seconds
   when it reports changes itself, and never send it a burst of requests.
 
+## Since 0.27.4
+
+- **Plugin API revision 8:** `Device.part_of` – a further part of another device of the same plugin without controls
+  of its own (surround speaker, sub, second box of a stereo pair) names that device by its plugin id. `device_merge`
+  keeps it as `(plugin, id)` while building and resolves it at the end through `index` to the id of the row that shows
+  the main device (a hub may lend it its id); a main device that is not shown leaves the field out. `part_of` is a
+  reserved row field. Used by the floor plan (sound waves, `dev/docs/floorplan.md`). **Sonos plugin 1.2.1** sets it for
+  every further box (`api_revision` 8).
+
 ## Since 0.23
 
 - **Plugin API revision 7** (additions only, `API_VERSION` stays 1): **buttons and ambient light.**

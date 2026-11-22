@@ -1473,6 +1473,7 @@
         const nameSVG = (name, below) => st.plan.show_names ? `<text class="fp-device-name" x="0" y="${r3(below + nfs * 1.15)}" font-size="${nfs}" stroke-width="${nfs * 0.28}" text-anchor="middle">${HO.esc(name)}</text>` : ''
         st.dockPos = dockLayout(db, R, u)
         const mg = st.drag && st.drag.merge, shadows = []
+        st.bubbles = []   // bubbles and dots the inside effects must leave free (indoorNow)
         for (const [id, stored] of Object.entries(st.plan.devices)) {
           const d = db[id]
           if (!d) continue
@@ -1483,6 +1484,7 @@
             // view and in the editor. In the editor the grab area is larger: dragging the dot away detaches the device.
             const iss = d.alarm || (d.errors && d.errors.length) ? 'ind-bad' : HO.lowBattery(d) ? 'ind-warn' : ''
             shadows.push({ p: dp.p, r: dp.r })
+            st.bubbles.push({ x: dp.p[0], y: dp.p[1], r: dp.r })
             s += `<g class="fp-dev ${HO.devClass(d)} ${sel} docked dock-ind ${iss}" data-kind="dev" data-id="${HO.esc(id)}" transform="translate(${dp.p[0]} ${dp.p[1]})">
             <circle class="hit" r="${dp.hit || dp.r * (st.editing ? 3.4 : 2.2)}"/><circle class="bg" r="${dp.r}"/></g>`
           } else if (box) {
@@ -1500,6 +1502,7 @@
           } else {
             const gs = R * 1.22   // edge of the glyph (24 units)
             shadows.push({ p: [stored.x, stored.y], r: R })
+            st.bubbles.push({ x: stored.x, y: stored.y, r: R })
             s += `<g class="fp-dev ${HO.devClass(d)} ${sel} ${merge}" data-kind="dev" data-id="${HO.esc(id)}" transform="translate(${stored.x} ${stored.y})">
             <circle class="bg" r="${R}"/><g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[d.kind] || HO.iconPaths.device}</g>
             ${deviceMarks(d, R * 0.78, R * 0.78, mark, false)}${nameSVG(d.name, R)}
@@ -1530,6 +1533,7 @@
           const hasErr = ms.some(d => d.alarm || (d.errors && d.errors.length)), hasOffline = ms.some(d => !d.online), low = ms.some(HO.lowBattery)
           const edge = r0 * 0.78
           shadows.push({ p: [g.x, g.y], r: r0 })
+          st.bubbles.push({ x: g.x, y: g.y, r: r0 })
           s += `<g class="fp-dev fp-group ${groupClass(ms)} ${sel ? 'sel' : ''} ${mg && mg.type === 'group' && mg.id === g.id ? 'merge' : ''}" data-kind="group" data-id="${HO.esc(g.id)}" transform="translate(${g.x} ${g.y})">
             <circle class="bg" r="${r0}"/>${mini}
             ${markSVG('count', r0 * 0.8, -r0 * 0.8, R * COUNT_MARK, n)}
@@ -1653,7 +1657,10 @@
          and passages between two rooms that light can pass (since 0.27.1) – a, b, n = unit vector into rooms[0],
          rooms = the two room indices; a door whose contact reports it closed is left out, one without a contact counts
          as open; `speakers` = every placed device or group that plays right now – x, y, r = radius of its symbol, room,
-         level = volume 0…1. A muted speaker sends no waves; a floor below the ground has no window light. light =
+         level = volume 0…1. A muted speaker sends no waves; a floor below the ground has no window light. A further part
+         (surround speaker, sub, second box of a stereo pair) has no capability `playing` of its own: its row names its
+         main device (`part_of`, plugin API revision 8) – it plays exactly when that one plays, with its volume and mute. `bubbles` = device bubbles, group
+         bubbles and docked dots (x, y, r) – the inside layer leaves them free, the canvas lies above the SVG. light =
          false: only the speakers (Basic, effects switched off) – windows and doors stay empty. */
       function indoorNow(light) {
         const fs = faces(), db = devById(), u = 1 / st.ppu, R = clamp(st.ppu * 0.6, 8, 15) * u
@@ -1682,8 +1689,10 @@
           const fields = lightFields(windows, doors, fs.map(f => f.poly))
           windows.forEach((w, i) => { w.glow = fields[i] })
         }
-        const plays = d => !!d && d.online && HO.caps.has(d, 'playing') && !!d.playing && !d.muted && (d.volume == null || d.volume > 0)
-        const loud = d => d.volume == null ? 0.5 : clamp(d.volume / 60, 0.2, 1)
+        // a further part (surround speaker, sub, second box of a stereo pair) sounds with its main device: its state counts
+        const sound = d => d && !HO.caps.has(d, 'playing') && d.part_of && db[d.part_of] ? db[d.part_of] : d
+        const plays = d => { const m = sound(d); return !!m && !!d.online && m.online && HO.caps.has(m, 'playing') && !!m.playing && !m.muted && (m.volume == null || m.volume > 0) }
+        const loud = d => { const m = sound(d); return m.volume == null ? 0.5 : clamp(m.volume / 60, 0.2, 1) }
         for (const [id, pos] of Object.entries(st.plan.devices)) {
           const d = db[id]
           if (!plays(d) || dockedTo(id)) continue
@@ -1694,7 +1703,7 @@
           const playing = g.members.map(id => db[id]).filter(plays), room = roomOf([g.x, g.y])
           if (playing.length && room >= 0) speakers.push({ x: g.x, y: g.y, r: R * GROUP_SCALE, room, level: Math.max.apply(null, playing.map(loud)) })
         }
-        return { windows, doors, speakers }
+        return { windows, doors, speakers, bubbles: st.bubbles || [] }
       }
       const LIGHT_HALF = 3.2, LIGHT_R = 13     // grid cells: half-value distance of the light and where it ends
       let lightCache = { key: '', list: [] }
