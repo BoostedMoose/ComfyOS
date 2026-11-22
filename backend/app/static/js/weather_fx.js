@@ -612,7 +612,8 @@
       const sky = sunny ? Math.pow(1 - cover, 1.4) : 0
       const dot = (lo, hi) => () => ({ u: Math.random(), v: Math.random(), r: rnd(lo, hi), a: rnd(0.3, 0.85), ph: rnd(0, TAU), sp: rnd(0.4, 1.6) })
       fit(stars, Math.round(clamp(area / 5200, 14, 110) * sky * soft), dot(0.5, 1.25))
-      fit(glints, fx.frost ? Math.round(clamp(area / 6000, 14, 90) * soft * (0.5 + 0.5 * frostOf())) : 0, dot(2.2, 4.6))
+      // (since 0.27.3 few, small and rare: a glint now and then, no glitter)
+      fit(glints, fx.frost ? Math.round(clamp(area / 18000, 4, 26) * soft * (0.5 + 0.5 * frostOf())) : 0, dot(1.3, 2.6))
       const now = performance.now()
       if (!nextFlash) nextFlash = now + rnd(2000, 6000)
       if (!nextMeteor) nextMeteor = now + rnd(20000, 90000)
@@ -1483,9 +1484,9 @@
       if (glints.length) {
         // a small four-pointed star: two slim diamonds crossed, a bright core
         ctx.fillStyle = col.snow
-        const sparkle = 0.9 * (1 + 0.4 * up) * k
+        const sparkle = 0.32 * (1 + 0.3 * up) * k
         for (const s of glints) {
-          const a = Math.pow(Math.max(0, Math.sin(s.ph + t * s.sp)), 3)
+          const a = Math.pow(Math.max(0, Math.sin(s.ph + t * s.sp * 0.6)), 8)
           if (a < 0.03) continue
           const x = box.x + s.u * box.w, y = box.y + s.v * box.h, r = s.r * (0.6 + 0.4 * a), slim = 0.16 * r + 0.3
           ctx.globalAlpha = Math.min(1, a * s.a * sparkle)

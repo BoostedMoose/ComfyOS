@@ -15,8 +15,9 @@ when something was added.
   second ray):** `floorplan.js` `lightFields()` measures for every window the path through
   the home on a coarse grid – the way the heat map spreads warmth (Dijkstra, walls stop it, the doors in
   `indoor.doors` let it through) – and returns a small image per window (`glow: {img, x, y, w, h}` in plan units)
-  whose opacity falls off with the path (`LIGHT_HALF`, `LIGHT_R`). Cached by plan and doors, never by weather or
-  time. `drawIndoor` tints each image once and draws it as bright as its window is right now (`GLOW_SKY` × sky light
+  whose opacity falls off with the path (`LIGHT_HALF`, `LIGHT_R`). The cells under a wall are blocked for the path
+  but get the light of their own side afterwards (since 0.27.3 – before a dark cushion stood between the light and
+  every wall; the heat map still has it). Cached by plan and doors, never by weather or time. `drawIndoor` tints each image once and draws it as bright as its window is right now (`GLOW_SKY` × sky light
   × shutter + `GLOW_SUN` × direct light), clipped only to the rooms as a whole: a bright room lights the next one
   through its open door. Under any sky, also in rain and under 100 % clouds. **No ray belongs to it** – rays (the
   patch on the floor, the shafts) exist only at windows the sun or the moon shines into and follow its position; the
@@ -37,6 +38,7 @@ when something was added.
   (`lattice()`), thinning out softly towards an irregular outline, on it bundles of scratches, splats, speckle, a few
   scratches that take ice away. Patches are large, turned at random and overlap into one sheet, thinner on the sunny
   side of the house than in its shadow.
+- **Frost glints (since 0.27.3):** few, small and rare – a crystal flashes now and then, no glitter.
 - **Both stay in the background:** `FROST_ALPHA` and `PUDDLE_ALPHA` are the opacity of the frost patches and of the
   puddles with everything in them (water, mirror, waves, glints) – the floor plan is the subject, the effects only
   accompany it.

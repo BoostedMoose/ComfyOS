@@ -1703,7 +1703,9 @@
          wall corners); walls stop the light, the doors handed over let it through, so a bright room lights the next one
          through its open door. Per window a small image comes out whose opacity falls off with the path – half of it
          is left after LIGHT_HALF cells, a long soft tail runs out at LIGHT_R –, with its place in plan units:
-         {img, x, y, w, h} (null if the window lights nothing). The effects draw every image as
+         {img, x, y, w, h} (null if the window lights nothing). The cells under a wall are blocked for the path, but
+         they get the light of their own side afterwards (the room their centre lies in): otherwise a dark cushion
+         would stand between the light and every wall. The effects draw every image as
          bright as its window is right now (sky, sun, shutter) – so only the plan and the doors decide about a new
          computation, never the weather or the time. */
       function lightFields(windows, doors, polys) {
@@ -1712,8 +1714,15 @@
         if (lightCache.key === key) return lightCache.list
         const cs = Math.max(0.2, W / 150), gw = Math.ceil(W / cs), gh = Math.ceil(H / cs), N = gw * gh, mid = i => (i + 0.5) * cs
         // 1) blocking: outside the rooms, walls; open doors again
-        const blocked = new Uint8Array(N)
-        for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (!polys.some(poly => inside(poly, [mid(x), mid(y)]))) blocked[y * gw + x] = 1
+        // room = index of the room a cell lies in (-1 = outside)
+        const blocked = new Uint8Array(N), room = new Int16Array(N)
+        for (let y = 0; y < gh; y++) {
+          for (let x = 0; x < gw; x++) {
+            const i = y * gw + x
+            room[i] = polys.findIndex(poly => inside(poly, [mid(x), mid(y)]))
+            if (room[i] < 0) blocked[i] = 1
+          }
+        }
         // block or release all cells within distance r around a segment
         const stamp = (a, b, r, val) => {
           const x0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - r) / cs)), x1 = Math.min(gw - 1, Math.ceil((Math.max(a[0], b[0]) + r) / cs))
@@ -1723,7 +1732,7 @@
         for (const w of st.plan.walls) { const f = flatten(w); for (let i = 0; i < f.length - 1; i++) stamp(f[i], f[i + 1], cs * 0.8, 1) }
         for (const d of doors) stamp(d.a, d.b, cs * 1.3, 0)
         // 2) per window: path distance from the inner side of the glass
-        const dd = new Float64Array(N), off = Math.max(0.3, cs * 1.4)
+        const dd = new Float64Array(N), lit = new Float64Array(N), off = Math.max(0.3, cs * 1.4)
         const list = windows.map(w => {
           dd.fill(Infinity)
           const heap = [], n = Math.max(2, Math.ceil(dist(w.a, w.b) / cs))
@@ -1762,10 +1771,25 @@
               if (nd < dd[j]) { dd[j] = nd; push(nd, j) }
             }
           }
+          // under the walls: the nearest open cell of the same room, two cells around at most
+          lit.set(dd)
+          for (let i = 0; i < N; i++) {
+            if (!blocked[i] || room[i] < 0) continue
+            const x = i % gw, y = (i / gw) | 0
+            let best = Infinity
+            for (let dy = -2; dy <= 2; dy++) {
+              for (let dx = -2; dx <= 2; dx++) {
+                const nx = x + dx, ny = y + dy, j = ny * gw + nx
+                if (nx < 0 || ny < 0 || nx >= gw || ny >= gh || blocked[j] || room[j] !== room[i]) continue
+                best = Math.min(best, dd[j] + Math.sqrt(dx * dx + dy * dy) * cs)
+              }
+            }
+            lit[i] = best
+          }
           // 3) image of what the window reaches (scaled up softly by the effects)
           let x0 = gw, y0 = gh, x1 = -1, y1 = -1
           for (let i = 0; i < N; i++) {
-            if (dd[i] >= LIGHT_R) continue
+            if (lit[i] >= LIGHT_R) continue
             const x = i % gw, y = (i / gw) | 0
             x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
           }
@@ -1774,7 +1798,7 @@
           cv.width = w0; cv.height = h0
           const ctx = cv.getContext('2d'), img = ctx.createImageData(w0, h0)
           for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
-            const far = dd[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
+            const far = lit[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
             img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
             const end = 1 - (far / LIGHT_R) * (far / LIGHT_R)
             img.data[at + 3] = far < LIGHT_R ? Math.round(255 * end * end / (1 + (far / LIGHT_HALF) * (far / LIGHT_HALF))) : 0
