@@ -13,6 +13,7 @@ existing installations: there are no conversion routines, so a format must never
     6  free scaling of a plan symbol (since 0.28): `stretch` only with a symbol, limited, 1 is not stored; the turn
        `rot` in whole degrees (since 0.29)
     7  loads ("Verbraucher", since 0.29): only stored when a floor has any, checked and limited, ids unique across floors
+    8  the place of a docked dot along its element (since 0.29.1): only when docked, the middle is not stored
 
     python tests/core/test_stores.py [path-to-comfyos]
     python tests/core/test_stores.py [path-to-comfyos] --write   # regenerate the sample files – only after a
@@ -430,8 +431,34 @@ if "loads" in fps.clean({"walls": [], "loads": []}) or fps.clean(cleaned) != cle
     problems.append("a plan without loads stores a list, or cleaning twice does not give the same")
 if len(fps.clean({"loads": [{"x": 1, "y": 1}] * (fps.MAX_LOADS + 5)})["loads"]) != fps.MAX_LOADS:
     problems.append("the number of loads per floor is not limited")
+# since 0.29.1: an own colour (then no tone), candle light as the tone of candles, a symbol of the bubble (only without a
+# plan symbol)
+looks = fps.clean({"loads": [{"id": "c1", "x": 1, "y": 1, "kind": "candles", "tone": "candle", "color": "#FF8800"},
+                             {"id": "c2", "x": 1, "y": 1, "kind": "candles", "tone": "warm", "icon": "flame"},
+                             {"id": "c3", "x": 1, "y": 1, "kind": "lamp", "tone": "candle", "color": "rot", "icon": "Bad!",
+                              "furniture": "floor-lamp"},
+                             {"id": "c4", "x": 1, "y": 1, "kind": "candles", "tone": "candle", "icon": "light", "furniture": "plant"}]})["loads"]
+if looks != [{"id": "c1", "x": 1.0, "y": 1.0, "kind": "candles", "color": "#ff8800"},
+             {"id": "c2", "x": 1.0, "y": 1.0, "kind": "candles", "tone": "warm", "icon": "flame"},
+             {"id": "c3", "x": 1.0, "y": 1.0, "kind": "lamp", "tone": "candle", "furniture": "floor-lamp"},
+             {"id": "c4", "x": 1.0, "y": 1.0, "kind": "candles", "furniture": "plant"}]:
+    problems.append(f"colour, tone and bubble symbol of loads: {looks}")
 settle()
-print("7 loads: only stored when there are any, kind/light/device/symbol checked, standards not stored, ids unique, limited")
+print("7 loads: only stored when there are any, kind/light/colour/device/symbol checked, standards not stored, ids unique, limited")
+
+# 8) The place of a docked dot along its element (since 0.29.1): `along` 0…1 only for a docked device, the middle is not
+#    stored, limited
+docks = fps.clean({"openings": [{"id": "o1", "type": "window", "a": [1, 1], "b": [4, 1], "device_id": "dev:kontakt",
+                                 "extra_ids": ["dev:rollo", "dev:mitte"]}],
+                   "devices": {"dev:kontakt": {"x": 2, "y": 1, "along": 0}, "dev:rollo": {"x": 2, "y": 1, "along": 1.7},
+                               "dev:mitte": {"x": 2, "y": 1, "along": 0.5}, "dev:frei": {"x": 6, "y": 6, "along": 0.2}}})["devices"]
+if [docks[k].get("along") for k in ("dev:kontakt", "dev:rollo", "dev:mitte", "dev:frei")] != [0.0, 1.0, None, None]:
+    problems.append(f"place of docked dots along their element: {docks}")
+if fps.clean({"openings": [{"id": "o1", "type": "window", "a": [1, 1], "b": [4, 1], "device_id": "dev:kontakt"}],
+              "devices": docks})["devices"]["dev:kontakt"] != docks["dev:kontakt"]:
+    problems.append("cleaning the place of a docked dot twice does not give the same")
+settle()
+print("8 docked dots: their place along the element only when docked, the middle not stored, limited to the element")
 
 if found:
     sys.exit(f"{len(found)} Befunde")

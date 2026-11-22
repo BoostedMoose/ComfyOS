@@ -33,20 +33,26 @@
   const STAIR_MIN = 0.5, STAIR_MAX = 6, STAIR_WIDTH = 2   // width of a staircase in cells (floorplan_store.STAIR_WIDTH)
   /* Loads ("Verbraucher", since 0.29): appliances without intelligence of their own – a floor lamp, a string of lights,
      a radio – put into the plan only for the picture. They hang on a switchable device (`device_id`, optional) and are
-     on while it is on: a light glows in its fixed white tone and brightness, a string of lights twinkles, candles
-     flicker, a radio or TV sends sound waves. Kinds as floorplan_store.LOAD_KINDS: label, icon of the bubble, the plan
-     symbol a new one gets (where symbols are allowed), light or sound, effect, a fixed white tone. */
+     on while it is on: a light glows in its white tone or colour (since 0.29.1 `color`) and brightness, a string of
+     lights twinkles, candles flicker, a radio or TV sends sound waves. Kinds as floorplan_store.LOAD_KINDS: label, icon
+     of the bubble, the plan symbol a new one gets (where symbols are allowed), light or sound, effect, the white tone a
+     light starts with (`tone`, not stored while it is the one of its kind). */
   const LOAD_KINDS = {
-    lamp: { label: 'Lampe', icon: 'light', symbol: 'floor-lamp', light: true },
-    string_lights: { label: 'Lichterkette', icon: 'light', symbol: 'light-bar', light: true, effect: 'sparkle' },
-    candles: { label: 'Kerzen und Kamin', icon: 'flame', light: true, effect: 'candle', kelvin: 2200 },
+    lamp: { label: 'Lampe', icon: 'light', symbol: 'floor-lamp', light: true, tone: 'warm' },
+    string_lights: { label: 'Lichterkette', icon: 'light', symbol: 'light-bar', light: true, effect: 'sparkle', tone: 'warm' },
+    candles: { label: 'Kerzen und Kamin', icon: 'flame', light: true, effect: 'candle', tone: 'candle' },
     radio: { label: 'Radio und Musik', icon: 'media', symbol: 'hifi', sound: true },
     tv: { label: 'Fernseher', icon: 'media', symbol: 'tv', sound: true },
     fan: { label: 'Ventilator', icon: 'switch', symbol: 'fan' },
     heater: { label: 'Heizgerät', icon: 'flame' },
     appliance: { label: 'Anderes Gerät', icon: 'switch' }
   }
-  const LOAD_TONES = { warm: ['Warmweiß', 2700], neutral: ['Neutralweiß', 4000], cold: ['Kaltweiß', 6500] }   // warm = standard
+  // white tones of a light among the loads: name and kelvin (floorplan_store.LOAD_TONES; candle light since 0.29.1)
+  const LOAD_TONES = { candle: ['Kerzenlicht', 2200], warm: ['Warmweiß', 2700], neutral: ['Neutralweiß', 4000], cold: ['Kaltweiß', 6500] }
+  // symbols of the bubble a load can carry instead of a plan symbol (since 0.29.1, `icon` – Basic, like the bubble)
+  const LOAD_ICONS = [['light', 'Glühbirne'], ['switch', 'Stecker'], ['media', 'Lautsprecher'], ['flame', 'Flamme'],
+    ['sparkle', 'Funkeln'], ['sun', 'Sonne'], ['bolt', 'Strom']]
+  const HEX = /^#[0-9a-f]{6}$/i
   const MAX_LOADS = 80   // per floor (floorplan_store.MAX_LOADS)
   // Editor preferences in the browser (like the grid): the neighbouring floor shines through, points snap to its walls
   const readPref = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v !== '0' } catch (e) { return fallback } }
@@ -704,20 +710,40 @@
         return best
       }
       // Docking: the device hangs on the element and appears there as a dot in the middle (view and editor alike).
-      // Stored is a place next to the element in the room (for the room assignment); a position along the
-      // element or a side no longer exists since 0.19 (old values `t`/`s` in stored plans do no harm).
+      // Stored is a place next to the element in the room (for the room assignment); the old position along the element
+      // and side of before 0.19 (`t`/`s`) are no longer read – since 0.29.1 the place along it is `along` (slideDock).
       function dock(id, o) {
+        const stays = !!o && dockedIds(o).includes(id)     // already at this element: it keeps its place along it
         undock(id, o)
         if (o) {
-          if (!dockedIds(o).includes(id)) setDocked(o, dockedIds(o).concat(id))
+          if (!stays) setDocked(o, dockedIds(o).concat(id))
           const q = dockPoint(o, 0.55 * (o.type === 'radiator' ? 1 : -1), 0.5)
           const kept = Object.assign({}, st.plan.devices[id] || {})
           delete kept.t; delete kept.s
+          if (!stays) delete kept.along                     // at a new element the dot starts in the middle
           st.plan.devices[id] = Object.assign(kept, { x: q[0], y: q[1] })
         }
       }
-      // positions of all docked devices: the dots of one element lie side by side, centred on it; overlaps between
-      // elements (radiator below a window) are pushed apart
+      /* Move a docked dot along its element (since 0.29.1 – several elements on each other, a window above a radiator):
+         it snaps to either end and to the middle, in between it stays where it is let go (Shift: no snapping). Stored as
+         `along` on the device: 0 = at the start, 1 = at the end of the element (drawn inside its ends at every zoom),
+         0.5 = the middle, which is not stored. */
+      function slideDock(id, o, p, free) {
+        const entry = st.plan.devices[id]
+        if (!entry) return
+        const L = dist(o.a, o.b) || 1, u = 1 / st.ppu, r = clamp(st.ppu * 0.6, 8, 15) * u * DOT
+        const inset = Math.min(0.5, (r + 2 * u) / L), grab = Math.max(r * 1.6, 0.2) / L
+        let t = clamp(project(p, o.a, o.b).t, 0, 1)
+        if (!free) {
+          if (t < inset + grab) t = 0
+          else if (t > 1 - inset - grab) t = 1
+          else if (Math.abs(t - 0.5) < grab) t = 0.5
+        }
+        if (Math.abs(t - 0.5) < 1e-3) delete entry.along; else entry.along = Math.round(t * 1000) / 1000
+      }
+      // positions of all docked devices: the dots of one element lie side by side, centred on it – since 0.29.1 each at
+      // its place along the element (`along`), dots that would overlap spread around the middle of their places;
+      // overlaps between elements (radiator below a window) are pushed apart
       function dockLayout(db, R, u) {
         const list = []
         for (const o of st.plan.openings) {
@@ -726,18 +752,38 @@
           const L = dist(o.a, o.b) || 1, dir = [(o.b[0] - o.a[0]) / L, (o.b[1] - o.a[1]) / L]
           // view and editor alike: radiator dot in front of the body in the room (distance as if a window contact sat
           // behind it); window/door at the outer wall: dot outside in front of the element; interior ones: centred in the opening
-          const bs = baseSide(o), r = R * DOT, mid = midOf(o.a, o.b), step = 2 * r + 4 * u
+          const bs = baseSide(o), r = R * DOT, step = 2 * r + 4 * u
           let n = [-dir[1] * bs, dir[0] * bs], off = 0
           if (o.type === 'radiator') off = Math.max(4 * u + Math.max(0.2, 7 * u) / 2, 2 * r + 3 * u)
           else {
             const rs = roomSideOf(o)   // a room on only one side = outer wall
             if (rs) { n = [dir[1] * rs, -dir[0] * rs]; off = r + 6 * u }
           }
-          ids.forEach((id, i) => {
-            const along = (i - (ids.length - 1) / 2) * step, m = [mid[0] + dir[0] * along, mid[1] + dir[1] * along]
-            // grab area: generous for a single dot, half the distance to the neighbour for several
-            list.push({ id, r, n, m, off, hit: ids.length > 1 ? step / 2 : 0, p: [m[0] + n[0] * off, m[1] + n[1] * off] })
-          })
+          // where each dot wants to be along the element (inside its ends), then rows of dots that would overlap: every
+          // row is centred on the mean of the places of its dots and stays on the element – all in the middle (the
+          // standard) gives the row centred on the element as before
+          const edge = Math.min(L / 2, r + 2 * u), blocks = []
+          const want = ids.map((id, i) => {
+            const at = st.plan.devices[id].along
+            return { id, i, s: clamp((at != null && isFinite(+at) ? clamp(+at, 0, 1) : 0.5) * L, edge, L - edge) }
+          }).sort((x, y) => x.s - y.s || x.i - y.i)
+          for (const w of want) {
+            blocks.push({ items: [w], sum: w.s })
+            for (;;) {
+              const b = blocks[blocks.length - 1], a = blocks[blocks.length - 2]
+              if (!a || b.sum / b.items.length - a.sum / a.items.length >= (a.items.length + b.items.length) / 2 * step) break
+              a.items = a.items.concat(b.items); a.sum += b.sum; blocks.pop()
+            }
+          }
+          for (const b of blocks) {
+            const half = (b.items.length - 1) / 2 * step, lo = edge + half, hi = L - edge - half
+            const c = lo <= hi ? clamp(b.sum / b.items.length, lo, hi) : L / 2
+            b.items.forEach((w, k) => {
+              const s = c + (k - (b.items.length - 1) / 2) * step, m = [o.a[0] + dir[0] * s, o.a[1] + dir[1] * s]
+              // grab area: generous for a single dot, half the distance to the neighbour for several
+              list.push({ id: w.id, r, n, m, off, hit: ids.length > 1 ? step / 2 : 0, p: [m[0] + n[0] * off, m[1] + n[1] * off] })
+            })
+          }
         }
         for (let pass = 0; pass < 6; pass++) {
           let moved = false
@@ -775,6 +821,12 @@
       const loadOn = (l, db) => { const d = carrierOf(l, db); return !!(d && d.online && d.on === true) }
       // State class like HO.devClass: on with its device, grey when the device is not reachable, neutral without one.
       const loadClass = (l, db) => { const d = carrierOf(l, db); return !d ? '' : !d.online ? 'off' : d.on === true ? 'on' : '' }
+      // White tone of a light among the loads: the chosen one or the one of its kind.
+      const loadTone = l => LOAD_TONES[l.tone] ? l.tone : ((LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).tone || 'warm')
+      // The colour a light among the loads shines in as [r, g, b]: its own colour (since 0.29.1) or its white tone.
+      const loadRgb = l => HEX.test(l.color || '') ? HO.hexToRgb(l.color) : HO.mirekToRgb(1e6 / LOAD_TONES[loadTone(l)][1])
+      // The symbol of its bubble: the chosen one (since 0.29.1) or the one of its kind.
+      const loadIcon = l => (l.icon && HO.iconPaths[l.icon] ? l.icon : (LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).icon)
       // Devices a load can hang on: everything ComfyOS switches on and off (plug, switching actuator, lamp), by name.
       const carriers = () => st.devices.filter(d => HO.caps.has(d, 'on', true)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'))
       // The entry of a selection {type, id} whose plan symbol can be scaled and turned: a free device or a load – read
@@ -1609,7 +1661,7 @@
         // loads (since 0.29): like a device – a bubble with the symbol of their kind or a plan symbol, the shadow, the
         // place on top of the inside layer –, but without marks; the status dot only when they hang on a device
         for (const l of st.plan.loads) {
-          const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp, carrier = carrierOf(l, db), box = symbolBox(l, u)
+          const carrier = carrierOf(l, db), box = symbolBox(l, u)
           const cls = `fp-dev fp-load ${loadClass(l, db)} ${isSel('load', l.id) ? 'sel' : ''}`
           const at = `data-kind="load" data-id="${HO.esc(l.id)}" transform="translate(${l.x} ${l.y})"`
           if (box) {
@@ -1626,7 +1678,7 @@
             shadows.push({ p: [l.x, l.y], r: R })
             st.bubbles.push({ x: l.x, y: l.y, r: R })
             s += `<g class="${cls}" ${at}><circle class="bg" r="${R}"/>
-              <g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[kind.icon] || HO.iconPaths.device}</g>
+              <g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[loadIcon(l)] || HO.iconPaths.device}</g>
               ${l.name ? nameSVG(l.name, R) : ''}</g>`
           }
         }
@@ -1798,7 +1850,7 @@
          white tone, colour or the points of a gradient), level = brightness 0…1, effect = running light effect or null,
          glow = how its light spreads (lampFields, like the window light: walls stop it, open doors let it through).
          Loads (since 0.29, "Verbraucher") take part like devices while the device they hang on is on: a light as a lamp
-         (id `load:<id>`, its fixed white tone and brightness, the effect of its kind), a radio or TV as a speaker.
+         (id `load:<id>`, its white tone or colour and brightness, the effect of its kind), a radio or TV as a speaker.
          light = false: no window light (Basic, weather effects switched off); the button "Effekte" (st.effects) switches
          lamps and speakers. */
       function indoorNow(light) {
@@ -1847,16 +1899,15 @@
           lamps.push({ id: 'group:' + g.id, x: g.x, y: g.y, room, shape: { r: R * GROUP_SCALE }, colors,
             level: Math.max.apply(null, members.map(level)), effect: members.map(effectOf).filter(Boolean)[0] || null })
         }
-        // loads (since 0.29): a light whose device is on shines in its fixed white tone and brightness; a string of
-        // lights twinkles, candles flicker (the effect of its kind)
+        // loads (since 0.29): a light whose device is on shines in its white tone or colour and its brightness; a string
+        // of lights twinkles, candles flicker (the effect of its kind)
         for (const l of own ? st.plan.loads : []) {
           const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp
           if (!kind.light || !loadOn(l, db)) continue
           const room = roomOf([l.x, l.y]), box = symbolBox(l, u)
           if (room < 0) continue
           const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round, key: l.furniture, m: box.m, ax: box.ax, ay: box.ay } : { r: R }
-          const kelvin = kind.kelvin || (LOAD_TONES[l.tone] || LOAD_TONES.warm)[1]
-          lamps.push({ id: 'load:' + l.id, x: l.x, y: l.y, room, shape, colors: [HO.mirekToRgb(1e6 / kelvin)],
+          lamps.push({ id: 'load:' + l.id, x: l.x, y: l.y, room, shape, colors: [loadRgb(l)],
             level: level({ brightness: loadBrightness(l) }), effect: kind.effect || null })
         }
         if (lamps.length) {
@@ -2156,12 +2207,17 @@
       /* ---------- Tools & sidebar (only in edit mode) */
       // Symbol picker of the editor: the standard look first, then every plan symbol as a picture (`kinds` = the symbols
       // of the device kinds too, for groups). A tap sets the symbol of the selected device or group (data-act="sym").
+      // `kinds`: true = the symbols of the device kinds after the plan symbols (a group), a list [[icon, label], …] =
+      // these symbols of a bubble right after "Standard" (a load, since 0.29.1).
       function symbolPicker(current, firstLabel, firstIcon, kinds) {
         const button = (key, label, picture) => `<button type="button" data-act="sym" data-v="${key}" class="${(current || '') === key ? 'active' : ''}" title="${HO.esc(label)}" aria-label="${HO.esc(label)}" aria-pressed="${(current || '') === key}">${picture}</button>`
-        const chosen = !current ? firstLabel : HO.planSymbols[current] ? HO.planSymbols[current].label : HO.kindLabel[current] || firstLabel
+        const icons = Array.isArray(kinds) ? kinds : kinds ? Object.entries(HO.kindLabel).filter(([key]) => HO.iconPaths[key]) : []
+        const named = icons.find(([key]) => key === current)
+        const chosen = !current ? firstLabel : HO.planSymbols[current] ? HO.planSymbols[current].label : named ? named[1] : firstLabel
+        const bubbles = icons.map(([key, label]) => button(key, label, HO.icon(key))).join('')
         return `<div class="field" style="margin-top:12px"><span>Symbol · ${HO.esc(chosen)}</span><div class="fp-sympick">
-          ${button('', firstLabel, firstIcon)}${Object.entries(HO.planSymbols).map(([key, symbol]) => button(key, symbol.label, HO.planSymbolIcon(key))).join('')}
-          ${kinds ? Object.entries(HO.kindLabel).filter(([key]) => HO.iconPaths[key]).map(([key, label]) => button(key, label, HO.icon(key))).join('') : ''}</div></div>`
+          ${button('', firstLabel, firstIcon)}${Array.isArray(kinds) ? bubbles : ''}${Object.entries(HO.planSymbols).map(([key, symbol]) => button(key, symbol.label, HO.planSymbolIcon(key))).join('')}
+          ${Array.isArray(kinds) ? '' : bubbles}</div></div>`
       }
       // Size, width, height and turn of a plan symbol (a device or a load) for the panel – the finger needs no handle.
       // Size keeps the proportion, width and height go on their own (since 0.28), the turn goes to the next 45° (0.29).
@@ -2183,9 +2239,11 @@
       }
       // Brightness of a light of a load in per cent (100 is not stored).
       const loadBrightness = l => clamp(Math.round(+l.brightness || 100), 10, 100)
-      // Panel of a load (since 0.29): name, kind, the device it hangs on, light colour and brightness of a light, symbol.
+      // Panel of a load (since 0.29): name, kind, the device it hangs on, light colour (white tone or – since 0.29.1 – an own
+      // colour) and brightness of a light, symbol (a bubble with a symbol of its own since 0.29.1, or a plan symbol).
       function loadPanelHTML(l, db) {
         const kind = LOAD_KINDS[l.kind] || LOAD_KINDS.lamp, box = symbolBox(l, 1 / st.ppu), list = carriers(), carrier = carrierOf(l, db)
+        const colored = HEX.test(l.color || '')
         const gone = l.device_id && !list.some(d => d.id === l.device_id)
         return `<div class="fp-panel"><div class="row between"><h4>Verbraucher</h4>
             <button class="btn sm ghost danger" data-act="delete">${HO.icon('trash', 'sm')} Löschen</button></div>
@@ -2196,11 +2254,14 @@
             `<option value="${HO.esc(d.id)}" ${d.id === l.device_id ? 'selected' : ''}>${HO.esc(d.name)}${d.room ? ' · ' + HO.esc(d.room) : ''}</option>`).join('')}
             ${gone ? `<option value="${HO.esc(l.device_id)}" selected>Gerät nicht mehr vorhanden</option>` : ''}</select>
             <span class="hint">${carrier ? `Gerade: ${HO.esc(HO.devState(carrier))} – der Verbraucher ist an, solange es an ist.` : 'Ein Zwischenstecker, Schaltaktor oder eine Lampe, die ComfyOS schaltet. Ohne Gerät bleibt er aus.'}</span></label>
-          ${kind.light && !kind.kelvin ? `<label class="field"><span>Lichtfarbe</span><select data-f="ltone">${Object.keys(LOAD_TONES).map(k =>
-            `<option value="${k}" ${(l.tone || 'warm') === k ? 'selected' : ''}>${LOAD_TONES[k][0]} (${LOAD_TONES[k][1]} K)</option>`).join('')}</select></label>` : ''}
+          ${kind.light ? `<label class="field"><span>Lichtfarbe</span><select data-f="ltone">${Object.keys(LOAD_TONES).map(k =>
+            `<option value="${k}" ${!colored && loadTone(l) === k ? 'selected' : ''}>${LOAD_TONES[k][0]} (${LOAD_TONES[k][1]} K)</option>`).join('')}
+            <option value="color" ${colored ? 'selected' : ''}>Eigene Farbe</option></select></label>
+          ${colored ? `<label class="field"><span>Farbe</span><input type="color" data-f="lcolor" value="${HO.esc(l.color.toLowerCase())}" aria-label="Farbe des Lichts"></label>` : ''}` : ''}
           ${kind.light ? `<label class="field"><span>Helligkeit: <b data-lbri-val>${loadBrightness(l)} %</b></span>
             <input type="range" data-f="lbri" min="10" max="100" step="5" value="${loadBrightness(l)}" aria-label="Helligkeit"></label>` : ''}
-          ${symbolPicker(HO.planSymbols[l.furniture] ? l.furniture : '', 'Standard', HO.icon(kind.icon), false)}
+          ${symbolPicker(HO.planSymbols[l.furniture] ? l.furniture : l.icon && HO.iconPaths[l.icon] ? l.icon : '', 'Standard', HO.icon(kind.icon), LOAD_ICONS)}
+          ${HO.can('custom_appearance') ? '' : '<p class="tiny muted" style="margin:6px 0 0">Die Blasen sind frei, Symbole in Draufsicht gehören zu ComfyOS Pro.</p>'}
           ${box ? symbolControlsHTML(box) : ''}
           <p class="small muted" style="margin:10px 0 0">Nur für das Bild: ein Verbraucher erscheint in keiner Liste, keiner Szene und keinem Flow
             und schaltet nichts. In der Ansicht öffnet Antippen das Gerät, an dem er hängt. Sein Licht und seine Schallwellen zeigt die Ansicht mit „Effekte“.</p></div>`
@@ -2353,7 +2414,7 @@
             ${d.room_pending ? `<p class="small" style="margin:10px 0 0;color:var(--warn)">${HO.esc(HO.roomHub() || 'Hub')}: noch in „${HO.esc(d.hb_room || 'kein Raum')}" – Übertragen unter dem Grundriss.</p>` : ''}
             <p class="small muted" style="margin:10px 0 0">In einen anderen Raum ziehen = Gerät diesem Raum zuordnen.
               ${dockTypes(d).length ? (d.kind === 'thermostat' ? ' Auf einen Heizkörper ziehen = andocken, der Heizkörper strahlt dann in der Heatmap.' : ' Auf ein Fenster oder eine Tür ziehen = andocken – auch neben ein Gerät, das dort schon sitzt.') : ''}
-              ${dockedTo(d.id) ? ' <b>Angedockt</b> – das Gerät sitzt als Punkt am Element; zum Lösen den Punkt wegziehen.' : ' Auf ein anderes Gerät ziehen = Gruppe bilden.'}</p></div>`
+              ${dockedTo(d.id) ? ' <b>Angedockt</b> – das Gerät sitzt als Punkt am Element. Entlang des Elements ziehen = verschieben, er rastet an den Enden und in der Mitte ein (Umschalttaste = frei); zum Lösen den Punkt wegziehen.' : ' Auf ein anderes Gerät ziehen = Gruppe bilden.'}</p></div>`
         } else {
           panel = `${st.tool === 'select' ? floorPanelHTML() : ''}<div class="notice">${HO.icon('info', 'sm')}<div>${HINTS[st.tool]}</div></div>
             ${st.tool === 'select' && st.plan.rooms.length ? (() => {
@@ -2988,10 +3049,13 @@
           const nd = nearestDock(devById()[d.id], raw, d.dock)
           d.dock = nd ? nd.o : null
           if (!nd) undock(d.id)
-          // close to a fitting element: dock at once (the dot appears centred at the element – clear feedback);
-          // dragged away: the bubble in the hand again
-          if (nd) dock(d.id, nd.o)
-          else st.plan.devices[d.id] = { ...st.plan.devices[d.id], x: clamp(r3(raw[0]), 0, W), y: clamp(r3(raw[1]), 0, H) }
+          // close to a fitting element: dock at once (the dot appears centred at the element – clear feedback); at the
+          // element it already hangs on it moves along it (since 0.29.1); dragged away: the bubble in the hand again
+          if (nd) {
+            const stays = dockedTo(d.id) === nd.o
+            dock(d.id, nd.o)
+            if (stays) slideDock(d.id, nd.o, raw, e.shiftKey)
+          } else st.plan.devices[d.id] = { ...st.plan.devices[d.id], x: clamp(r3(raw[0]), 0, W), y: clamp(r3(raw[1]), 0, H) }
           d.merge = nd ? null : mergeTarget(d.id, raw)
           d.moved = true
         } else if (d.mode === 'symscale') {
@@ -3181,8 +3245,13 @@
         else if (act === 'unplace') { delete st.plan.devices[st.sel.id]; st.sel = null; save(); render() }
         else if (act === 'sym') {
           // symbol picker: plan symbol of the selected device (empty = standard bubble) or symbol of the selected group
-          const key = t.dataset.v || '', entry = st.sel && symEntryOf(st.sel)
-          if (entry) { if (key) entry.furniture = key; else { delete entry.furniture; delete entry.size; delete entry.rot; delete entry.stretch } }
+          const key = t.dataset.v || '', entry = st.sel && symEntryOf(st.sel), load = st.sel && st.sel.type === 'load'
+          if (entry && HO.planSymbols[key]) { entry.furniture = key; delete entry.icon }
+          else if (entry) {
+            // the standard bubble – for a load (since 0.29.1) also with a symbol of its own (`icon`)
+            delete entry.furniture; delete entry.size; delete entry.rot; delete entry.stretch
+            if (load && key && HO.iconPaths[key]) entry.icon = key; else delete entry.icon
+          }
           else if (it && st.sel.type === 'group') it.icon = key
           else return
           save(); render()
@@ -3272,7 +3341,13 @@
           if (t.value) it.device_id = t.value; else delete it.device_id
           save(); render()
         } else if (t.dataset.f === 'ltone' && st.sel.type === 'load') {
-          if (LOAD_TONES[t.value] && t.value !== 'warm') it.tone = t.value; else delete it.tone
+          // a white tone (the one of its kind is not stored) or an own colour, starting from the light it has now
+          const standard = (LOAD_KINDS[it.kind] || LOAD_KINDS.lamp).tone || 'warm'
+          if (t.value === 'color') { if (!HEX.test(it.color || '')) it.color = HO.rgbToHex.apply(null, loadRgb(it)); delete it.tone }
+          else { delete it.color; if (LOAD_TONES[t.value] && t.value !== standard) it.tone = t.value; else delete it.tone }
+          save(); render()
+        } else if (t.dataset.f === 'lcolor' && st.sel.type === 'load') {
+          if (HEX.test(t.value)) { it.color = t.value.toLowerCase(); delete it.tone }
           save(); renderSVG()
         } else if (t.dataset.f === 'lbri' && st.sel.type === 'load') {
           save()
@@ -3309,10 +3384,11 @@
           renderSVG(); return
         }
         if (t.dataset.f === 'gname') { const g = selItem(); if (g) { g.name = t.value.slice(0, 40); save(); renderSVG() } return }
-        if ((t.dataset.f === 'lname' || t.dataset.f === 'lbri') && st.sel && st.sel.type === 'load') {   // a load (since 0.29)
+        if (['lname', 'lbri', 'lcolor'].includes(t.dataset.f) && st.sel && st.sel.type === 'load') {   // a load (since 0.29)
           const l = selItem()
           if (!l) return
           if (t.dataset.f === 'lname') { const name = t.value.replace(/\s+/g, ' ').trim().slice(0, 40); if (name) l.name = name; else delete l.name }
+          else if (t.dataset.f === 'lcolor') { if (!HEX.test(t.value)) return; l.color = t.value.toLowerCase(); delete l.tone }   // live while picking
           else {
             const level = clamp(Math.round(+t.value || 100), 10, 100), shown = t.closest('.field') && t.closest('.field').querySelector('[data-lbri-val]')
             if (level < 100) l.brightness = level; else delete l.brightness

@@ -185,7 +185,7 @@ Order in the runner: folders `core`, `flow`, `plugins`, `security`, alphabetical
 Every test prints one line per section – these lines are the list of check points (`dev/test_inventory.py`).
 With 0.22.1 these lines became English: an inventory of an older state does not compare line by line with a new one.
 
-### core/test_stores.py *(7 sections, since 0.20)*
+### core/test_stores.py *(8 sections, since 0.20)*
 Every store reads its sample file from `tests/data/stores/` and writes it back **byte for byte unchanged**.
 As long as that is green, no file format changed – there are no conversion routines, so a format must never
 change by accident. In addition: loading changes nothing; a damaged file (empty, cut off, no JSON, wrong type)
@@ -195,7 +195,9 @@ floor, a device stands on one floor only, ids of floors, rooms and groups and th
 a closed outline, the number of floors is limited. Section 6 (since 0.28): `stretch` of a plan symbol is kept only with a
 symbol, limited to `SYMBOL_STRETCH`, 1 is not stored; since 0.29 the turn `rot` in whole degrees (rounded, 0 and 360 not
 stored, only with a symbol). Section 7 (since 0.29): loads ("Verbraucher") are stored per floor only when there are any,
-kind, light, device and symbol checked, the standards (warm, 100 %) not stored, ids unique across floors, at most `MAX_LOADS`.
+kind, light, device and symbol checked, the standards (warm, 100 %) not stored, ids unique across floors, at most `MAX_LOADS`;
+since 0.29.1 an own colour (then no tone), candle light as the standard of candles, a symbol of the bubble only without a plan symbol.
+Section 8 (since 0.29.1): the place of a docked dot along its element (`along`) only for a docked device, the middle not stored.
 After a **deliberate** format change: `python tests/core/test_stores.py --write` and name the change in `Roadmap.md`.
 
 ### core/test_widgets.py *(6 sections, since 0.24)*

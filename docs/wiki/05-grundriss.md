@@ -27,8 +27,8 @@ Tippe im Grundriss auf **Bearbeiten**. Änderungen werden sofort gespeichert.
 Nicht alles im Haus ist smart. Die Stehlampe hängt am Zwischenstecker, die Lichterkette am Schaltaktor, das alte Radio an der Steckdosenleiste. Mit dem Werkzeug **Verbraucher** stellst du solche Geräte dorthin, wo sie wirklich stehen. Sie machen den Grundriss realistischer und sind nur für das Bild da: In Listen, Szenen und Flows erscheinen sie nicht.
 
 - **Verknüpfen:** Unter „Hängt an“ wählst du das Gerät, das ComfyOS schaltet. Ist es an, ist auch der Verbraucher an. Hängen drei Lampen am selben Stecker, leuchten alle drei.
-- **Arten:** Eine Lampe leuchtet in der gewählten Farbe (warm, neutral, kalt) und Helligkeit. Eine Lichterkette funkelt, Kerzen und Kamin flackern, Radio und Fernseher senden Schallwellen. Ventilator, Heizgerät und andere Geräte zeigen nur an oder aus.
-- **Aussehen:** wie ein Gerät, als Blase oder mit einem eigenen Symbol (Pro), das sich frei drehen und skalieren lässt. Das Leuchten zeigt die Ansicht mit eingeschalteten **Effekten**.
+- **Arten:** Lampe, Lichterkette und Kerzen leuchten mit einstellbarer Helligkeit – in einem Weißton von Kerzenlicht bis Kaltweiß oder in einer eigenen Farbe. Eine Lichterkette funkelt, Kerzen und Kamin flackern, Radio und Fernseher senden Schallwellen. Ventilator, Heizgerät und andere Geräte zeigen nur an oder aus.
+- **Aussehen:** als Blase mit einem Zeichen deiner Wahl – Glühbirne, Stecker, Lautsprecher, Flamme und andere – oder mit einem Symbol in Draufsicht (Pro), das sich frei drehen und skalieren lässt. Das Leuchten zeigt die Ansicht mit eingeschalteten **Effekten**.
 - **In der Ansicht** öffnet Antippen das Gerät, an dem der Verbraucher hängt – dort schaltest du ihn.
 
 ## Stockwerke
@@ -48,7 +48,7 @@ Ein Keller zeigt kein Wetter. Weitere Stockwerke gehören zu Pro, Balkone und Te
 ## Geräte platzieren
 
 - Nicht platzierte Geräte stehen unter dem Plan. Antippen oder in den Plan ziehen.
-- **Andocken:** Ein Fensterkontakt oder Rollladen auf einem Fenster oder einer Tür und ein Thermostat auf einem Heizkörper sitzen als Punkt mittig am Element. An einem Element haben bis zu vier Geräte Platz – etwa Kontakt und Rollladen am selben Fenster; ihre Punkte liegen nebeneinander. Wegziehen löst sie wieder.
+- **Andocken:** Ein Fensterkontakt oder Rollladen auf einem Fenster oder einer Tür und ein Thermostat auf einem Heizkörper sitzen als Punkt mittig am Element. An einem Element haben bis zu vier Geräte Platz – etwa Kontakt und Rollladen am selben Fenster; ihre Punkte liegen nebeneinander. Entlang des Elements gezogen wandert ein Punkt mit und rastet an den Enden und in der Mitte ein, dazwischen bleibt er, wo du ihn loslässt (mit Umschalttaste ohne Einrasten) – so liegen Punkte von Fenster und Heizkörper nicht mehr übereinander. Wegziehen löst ihn wieder.
 - **Gerätegruppen:** Mehrere Geräte zu einem Punkt zusammenfassen, etwa die zwei Lampen über dem Sofa.
 - **Symbole:** Jedes Gerät erscheint als Blase mit dem Zeichen seiner Art – der Rahmen ist grün, wenn es an oder aktiv ist. Geräte, die im Raum auffallen, bekommen ein eigenes Symbol in Draufsicht: Fernseher, Soundbar, HiFi-Anlage, Stehlampe, Kühlschrank, Sofa, Bett und rund 20 weitere. Ein farbiger Punkt an der Ecke zeigt den Zustand. Solche Symbole lassen sich frei drehen und skalieren – im Editor die Ecke des Rahmens für die Größe, die Mitte rechts für die Breite, die Mitte unten für die Höhe, der Knopf über dem Rahmen dreht (er rastet bei 45° ein, mit Umschalttaste in 15°-Schritten). Die Linien bleiben gleich stark, runde Enden bleiben rund, Details verteilen sich: So wird aus der Lichtleiste ein langer Streifen hinter dem Fernseher. Der Schatten folgt immer der Form des Symbols. Auch eine Gruppe kann ein Symbol tragen; es erscheint dann in der Gruppenblase.
 

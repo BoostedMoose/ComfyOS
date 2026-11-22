@@ -331,7 +331,7 @@ def run(p, engine, name, reduced=False, **ctx_args):
     else:
         page.evaluate("() => localStorage.setItem('ho.fpEffects', '1')")
         page.evaluate("""async id => { const p = Object.assign({}, HO.state.overview.floorplan,
-            {loads: [{id: 'l1', x: 9.5, y: 5, kind: 'lamp', device_id: id, tone: 'cold', name: 'Stehlampe'}]})
+            {loads: [{id: 'l1', x: 9.5, y: 5, kind: 'lamp', device_id: id, color: '#40a0ff', icon: 'light', name: 'Stehlampe'}]})
           HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}); HO.go('home', true) }""", carrier)
         try:
             page.wait_for_selector('#fpHost [data-kind="load"].on', timeout=8000)

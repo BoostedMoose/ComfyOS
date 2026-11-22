@@ -6,9 +6,10 @@ floorplan.json:
     "rooms":    [ {"id", "name", "room_id", "x", "y"} ],
     "openings": [ {"id", "type": "door"|"window"|"passage"|"radiator", "a": [x, y], "b": [x, y], "side": 1|-1, "device_id",
                     "extra_ids": [device_id, …]} ],   # device_id = first docked device, extra_ids = further ones (optional)
-    "devices":  { "<device_id>": {"x", "y", "furniture", "size", "rot", "stretch"} },   # furniture = plan symbol
+    "devices":  { "<device_id>": {"x", "y", "along", "furniture", "size", "rot", "stretch"} },   # furniture = plan symbol
                 # instead of the standard bubble, with its size and turn (rot in whole degrees since 0.29, before in
-                # steps of 45); stretch (since 0.28) = its width ÷ its height against the drawn proportion (1 is not stored)
+                # steps of 45); stretch (since 0.28) = its width ÷ its height against the drawn proportion (1 is not stored);
+                # along (since 0.29.1) = place of a docked dot along its element, 0…1 (the middle 0.5 is not stored)
     "groups":   [ {"id", "name", "x", "y", "members": [device_id, …]} ],   # device groups (one circle for several devices)
     "home_name": "Wohnung",
     "shadow": true, "north": 0,    # shadow by the position of the sun; north = direction of north in degrees, clockwise from "up"
@@ -17,9 +18,9 @@ floorplan.json:
                                                                # wall (first point repeated at the end); they are outside
     "stairs":   [ {"id", "a": [x, y], "b": [x, y], "width"} ],   # staircase from its foot `a` up to its head `b`; the
                                                                  # floor above shows the stairwell at the same place
-    "loads":    [ {"id", "x", "y", "kind", "device_id", "name", "tone", "brightness",   # since 0.29, only stored when
-                   "furniture", "size", "rot", "stretch"} ],   # there are any: appliances without intelligence of their
-                                                               # own, only for the picture (see below)
+    "loads":    [ {"id", "x", "y", "kind", "device_id", "name", "tone" | "color", "brightness",   # since 0.29, only
+                   "icon" | "furniture", "size", "rot", "stretch"} ],   # stored when there are any: appliances without
+                                                               # intelligence of their own, only for the picture (below)
     "floor_id": "ground", "floor_name": "",    # since 0.25: id and name of the floor stored at the top level (level 0)
     "floors":   [ {"id", "name", "level": ±n,  # the further floors: level > 0 above, < 0 below the one at the top level
                    "walls", "rooms", "openings", "devices", "groups", "decks", "stairs", "loads"} ] }
@@ -34,9 +35,10 @@ element. Ids of floors, rooms and groups are unique across all floors.
 
 Loads (since 0.29, "Verbraucher"): a floor lamp, a string of lights, a radio … without intelligence of their own, put into
 the plan for the picture only – no device of ComfyOS, nothing switches them. `kind` from LOAD_KINDS, `device_id` = the
-switchable device it hangs on (optional; it is on while that one is on), `tone`/`brightness` = its fixed light (warm and
-100 are not stored), a plan symbol like a device (`furniture` with `size`, `rot`, `stretch`). Additive: a floor without
-loads stores no list, so a plan from before reads and writes as before.
+switchable device it hangs on (optional; it is on while that one is on), `tone` or – since 0.29.1 – `color` and
+`brightness` = its light (the tone of its kind and 100 are not stored), a plan symbol like a device (`furniture` with
+`size`, `rot`, `stretch`) or – since 0.29.1 – a bubble with a symbol of its own (`icon`). Additive: a floor without loads
+stores no list, so a plan from before reads and writes as before.
 
 Units are grid cells (freely chosen, e.g. 1 cell = 0.5 m).
 Only walls are drawn (open polylines, bend[i] = control point of a
@@ -50,6 +52,7 @@ order of the room tiles from the time before 0.19.3 (only read any more, see car
 """
 from __future__ import annotations
 
+import re
 import threading
 from typing import Any
 
@@ -77,7 +80,9 @@ SYMBOL_TURN = 1             # a plan symbol is turned in whole degrees (since 0.
 SYMBOL_STRETCH = (0.25, 8)  # width of a plan symbol against its height (1 = as drawn), the same limits as in floorplan.js
 MAX_LOADS = 80              # loads ("Verbraucher") per floor (since 0.29)
 LOAD_KINDS = ("lamp", "string_lights", "candles", "radio", "tv", "fan", "heater", "appliance")   # as floorplan.js LOAD_KINDS
-LOAD_TONES = ("warm", "neutral", "cold")   # white tone of a light among the loads; warm is the standard
+LOAD_TONES = ("candle", "warm", "neutral", "cold")   # white tone of a light among the loads (candle light since 0.29.1)
+LOAD_ICON = re.compile(r"^[a-z]{2,20}$")   # symbol of the bubble of a load (since 0.29.1, a key of the icons of the interface)
+HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")   # own colour of a light among the loads (since 0.29.1)
 LOAD_BRIGHTNESS = (10, 100)                # per cent; 100 is the standard
 
 
@@ -178,8 +183,10 @@ def _symbol(pos: dict) -> dict[str, Any]:
 
 
 def _load(raw: dict, width, height) -> dict[str, Any]:
-    """A load ("Verbraucher", since 0.29): place, kind, the device it hangs on, a name, the fixed light of a light (warm
-    and 100 % are not stored) and its plan symbol. An unknown kind becomes a lamp."""
+    """A load ("Verbraucher", since 0.29): place, kind, the device it hangs on, a name, the light of a light – a white
+    tone (the one of its kind – candle light for candles, otherwise warm – is not stored) or since 0.29.1 an own colour
+    `color` (then without a tone), its brightness (100 % is not stored) – and its look: a plan symbol, or a bubble with
+    a symbol of its own (`icon`, since 0.29.1, only without a plan symbol). An unknown kind becomes a lamp."""
     entry: dict[str, Any] = {"id": str(raw.get("id") or "")[:40] or "l", "x": _num(raw.get("x"), 0, width, 0),
                              "y": _num(raw.get("y"), 0, height, 0),
                              "kind": raw.get("kind") if raw.get("kind") in LOAD_KINDS else "lamp"}
@@ -187,12 +194,18 @@ def _load(raw: dict, width, height) -> dict[str, Any]:
         entry["device_id"] = str(raw["device_id"])[:160]
     if _name(raw.get("name")):
         entry["name"] = _name(raw.get("name"))
-    if raw.get("tone") in LOAD_TONES and raw.get("tone") != "warm":
+    color = raw.get("color")
+    if isinstance(color, str) and HEX_COLOR.match(color):
+        entry["color"] = color.lower()
+    elif raw.get("tone") in LOAD_TONES and raw.get("tone") != ("candle" if entry["kind"] == "candles" else "warm"):
         entry["tone"] = raw["tone"]
     brightness = int(_num(raw.get("brightness"), LOAD_BRIGHTNESS[0], LOAD_BRIGHTNESS[1], LOAD_BRIGHTNESS[1]))
     if brightness != LOAD_BRIGHTNESS[1]:
         entry["brightness"] = brightness
-    entry.update(_symbol(raw))
+    symbol = _symbol(raw)
+    if not symbol and isinstance(raw.get("icon"), str) and LOAD_ICON.match(raw["icon"]):
+        entry["icon"] = raw["icon"]
+    entry.update(symbol)
     return entry
 
 
@@ -257,6 +270,11 @@ def _content(raw: dict[str, Any], width, height, taken: set[str], room_ids: set[
                 entry["t"] = _num(pos.get("t"), 0, 1, 0.5)
             if pos.get("s") in (1, -1):                     # side at the docked element (inside/outside)
                 entry["s"] = pos["s"]
+            if str(did)[:160] in docked and pos.get("along") is not None:
+                # place of a docked dot along its element (since 0.29.1): 0 = start, 1 = end, the middle is not stored
+                along = _num(pos.get("along"), 0, 1, 0.5)
+                if along != 0.5:
+                    entry["along"] = along
             entry.update(_symbol(pos))
             devices[str(did)[:160]] = entry
     groups, grouped = [], set()
