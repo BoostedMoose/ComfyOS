@@ -65,7 +65,8 @@ print(f"4 release package: {len(files)} files, without tests/docs/captures/licen
 #    without anybody noticing here (that is how the sample files in tests/data/ went missing, because "data/" is ignored).
 EXPECTED_IGNORED = ("__pycache__/", ".pytest_cache/", "tests/shots/", "tools/build_secrets.env", "tools/captures/", "/.venv/", "/venv/",
                     "tools/mint_gift.py",   # the licence generator stays private (the public repository never gets it)
-                    "/node_modules/")     # only for building the Matter helper program; shipped is bridge/dist/bridge.mjs
+                    "/node_modules/",     # only for building the Matter helper program; shipped is bridge/dist/bridge.mjs
+                    "/dev/")              # new development tools stay private (.gitignore "dev/", e.g. the effect lab)
 if shutil.which("git") and (ROOT / ".git").exists():
     listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "--others", "--ignored", "--exclude-standard", "--",
                              "backend", "tests", "tools", "dev", "public"], capture_output=True, text=True, timeout=120)

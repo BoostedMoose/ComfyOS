@@ -150,7 +150,9 @@ RAIN_MAX_MM = 4.0      # mm/h  -> rain = 1
 SNOW_MAX_CM = 2.0      # cm/h  -> snow = 1
 WIND_MAX_KMH = 80.0    # km/h  -> wind = 1
 STORM_GUSTS_KMH = 60.0
-FROST_C = 0.0          # °C   -> hoarfrost if nothing falls
+FROST_C = 4.0          # °C   -> hoarfrost if nothing falls (ground frost begins above freezing; since 0.27, before 0 °C)
+FROST_FULL_C = 0.0     # °C   -> frost_level = 1; at FROST_C it is FROST_MIN
+FROST_MIN = 0.3
 HEAT_C = 28.0          # °C   -> heat > 0 (only by day in sunshine)
 HEAT_MAX_C = 38.0      # °C   -> heat = 1
 
@@ -227,7 +229,8 @@ def fx(cur: dict) -> dict:
     than the mean wind) – from it the interface derives how strongly the wind swells and subsides. wind_kmh =
     measured mean wind in km/h (wind arrow on the floor plan; `wind` is capped and raised in a storm).
     Further overlays: hail (thunderstorm with hail),
-    sleet (rain and snow at once), frost (dry and at most FROST_C), heat (0..1 from HEAT_C, by day in sunshine)."""
+    sleet (rain and snow at once), frost (dry and at most FROST_C; frost_level 0..1 = how much of it, full from FROST_FULL_C),
+    heat (0..1 from HEAT_C, by day in sunshine)."""
     try:
         code = int(cur.get("weather_code"))
     except (TypeError, ValueError):
@@ -270,12 +273,13 @@ def fx(cur: dict) -> dict:
     temp = float(raw_temp) if isinstance(raw_temp, (int, float)) and not isinstance(raw_temp, bool) and raw_temp == raw_temp else None
     is_day = bool(cur.get("is_day", 1))
     frost = temp is not None and temp <= FROST_C and kind in ("clear", "partly", "overcast", "fog")
+    frost_level = FROST_MIN + (1 - FROST_MIN) * min(1.0, (FROST_C - temp) / (FROST_C - FROST_FULL_C)) if frost else 0.0
     heat = (temp - HEAT_C) / (HEAT_MAX_C - HEAT_C) if temp is not None and temp >= HEAT_C and is_day and kind in ("clear", "partly") else 0.0
     wind_n = max(wind, gusts * 0.75 if storm else 0.0) / WIND_MAX_KMH
     return {"kind": kind, "cloud": _unit(cloud_pct / 100), "rain": _unit(rain), "snow": _unit(snow),
             "wind": _unit(max(wind_n, 0.75) if storm else wind_n), "gust": _unit(max(gusts, wind) / WIND_MAX_KMH),
             "wind_kmh": int(round(min(max(wind, 0.0), 400.0))), "wind_dir": int(_f(cur.get("wind_direction_10m"))) % 360,
-            "thunder": kind == "thunder", "storm": storm, "hail": code in (96, 99), "frost": frost,
+            "thunder": kind == "thunder", "storm": storm, "hail": code in (96, 99), "frost": frost, "frost_level": _unit(frost_level),
             "heat": _unit(heat), "is_day": is_day}
 
 

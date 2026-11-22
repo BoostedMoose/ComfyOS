@@ -172,7 +172,11 @@ assert mix["kind"] == "rain" and mix["rain"] > 0 and mix["snow"] == 0.25, mix   
 mix = fx(cur(73, snowfall=1.0, rain=0.8))
 assert mix["kind"] == "snow" and mix["snow"] == 0.5 and mix["rain"] == 0.2, mix
 assert fx(cur(0, temperature_2m=-3.5))["frost"] is True and fx(cur(0, temperature_2m=0.0))["frost"] is True
-assert fx(cur(0, temperature_2m=4))["frost"] is False and fx(cur(0))["frost"] is False           # without a temperature: no frost
+assert fx(cur(0, temperature_2m=4.1))["frost"] is False and fx(cur(0))["frost"] is False         # without a temperature: no frost
+# since 0.27 hoarfrost shows from 4 °C; frost_level says how much: thin at 4 °C, full from 0 °C, 0 without frost
+assert fx(cur(0, temperature_2m=4))["frost"] is True and fx(cur(0, temperature_2m=4))["frost_level"] == 0.3
+assert fx(cur(0, temperature_2m=2))["frost_level"] == 0.65 and fx(cur(0, temperature_2m=0))["frost_level"] == 1
+assert fx(cur(0, temperature_2m=-8))["frost_level"] == 1 and fx(cur(0, temperature_2m=9))["frost_level"] == 0
 assert fx(cur(73, snowfall=1, temperature_2m=-5))["frost"] is False, "frost only if nothing falls"
 assert fx(cur(0, temperature_2m=33))["heat"] == 0.5 and fx(cur(0, temperature_2m=45))["heat"] == 1.0
 assert fx(cur(0, temperature_2m=27))["heat"] == 0 and fx({"weather_code": 0, "is_day": 0, "temperature_2m": 33})["heat"] == 0

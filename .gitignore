@@ -54,3 +54,5 @@ grep.exe.stackdump
 !tests/data/stores/secrets.json
 # Das gebündelte Beiprogramm des Matter-Plugins wird mitgeliefert – trotz „dist/“ oben.
 !public/plugins/matter/bridge/dist/
+
+dev/

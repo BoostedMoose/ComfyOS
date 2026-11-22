@@ -102,13 +102,16 @@ PIXELS_JS = """() => {
   for (let i = 3; i < all.length; i += 4) if (all[i]) drawn++
   const s = HO.weatherFx.stats, wind = document.querySelector('#fpHost .fp-wind:not(.hidden)')
   return { inside, drawn, frames: s.frames, wisps: s.wisps, cells: s.cells, solid: s.solid, leaves: s.leaves, puddles: s.puddles,
-    ripples: s.ripples, rays: s.rays, blocked: s.blocked, frost: s.frost, wind: wind ? wind.getAttribute('title') : null }
+    ripples: s.ripples, rays: s.rays, blocked: s.blocked, frost: s.frost, windows: s.windows, beams: s.beams, moon: s.moon,
+    sound: s.sound, wind: wind ? wind.getAttribute('title') : null }
 }"""
 # previews with wind from 15 km/h and without snow: leaves drift there; previews with rain: puddles and ripples
 LEAFY = {"partly", "rain", "breeze", "storm", "thunder", "hail"}
 WET = {"drizzle", "rain", "sleet", "storm", "thunder", "hail"}
 # previews of a clear sky: by day sun rays are always to be seen (since 0.26.1)
 SUNNY_DAY = {"clear", "frost", "heat"}
+# previews in which the moon of the preview night shines (since 0.27): a clear or partly cloudy sky, nothing falls
+MOONLIT = {"clear", "partly", "breeze", "frost", "heat"}
 
 
 def run(p, engine, name, reduced=False, **ctx_args):
@@ -224,8 +227,17 @@ def run(p, engine, name, reduced=False, **ctx_args):
             if px is None:
                 problems.append(f"{name}: {kind}/{tm}: kein Canvas")
                 continue
-            if px["inside"]:
+            # The weather never gets inside. Since 0.27 light and sound do: by day the sky light at every window, a
+            # patch of sunlight on a sunny day and of moonlight in a clear night, the waves of a speaker that plays. If
+            # none of that is there (a night without a moon, nothing plays), the rooms stay untouched.
+            if px["inside"] and not (px["windows"] or px["sound"]):
                 problems.append(f"{name}: {kind}/{tm}: Effekte im Inneren eines Raums (Alpha-Summe {px['inside']})")
+            if tm == "day" and not px["windows"]:
+                problems.append(f"{name}: {kind}/{tm}: by day no window lets light in")
+            if kind in SUNNY_DAY and not px["beams"]:
+                problems.append(f"{name}: {kind}/{tm}: no patch of {'sun' if tm == 'day' else 'moon'}light behind a window")
+            if tm == "night" and (bool(px["moon"]) != (kind in MOONLIT) or (px["windows"] and kind not in MOONLIT)):
+                problems.append(f"{name}: {kind}/{tm}: moonlight wrong (moon {px['moon']}, windows {px['windows']})")
             # every weather shows something outside – calm too (without particles) and at night too (stars, cloud veil)
             if not px["drawn"]:
                 problems.append(f"{name}: {kind}/{tm}: nothing drawn outside")

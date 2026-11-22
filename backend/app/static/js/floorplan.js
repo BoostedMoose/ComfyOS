@@ -377,6 +377,22 @@
     return { az: (az / rad + 360) % 360, el: el / rad }
   }
   HO.sunPos = sunPos
+  /* Position and phase of the moon (low-precision formulas, accurate to about 2°): az and el like sunPos, phase = lit
+     share of the disc (0 = new moon, 1 = full moon). Purely local as well. */
+  function moonPos(date, lat, lon) {
+    const rad = Math.PI / 180, d = date.getTime() / 864e5 - 10957.5
+    const lng = (218.316 + 13.176396 * d) * rad, anomaly = (134.963 + 13.064993 * d) * rad, node = (93.272 + 13.229350 * d) * rad
+    const l = lng + 6.289 * rad * Math.sin(anomaly), b = 5.128 * rad * Math.sin(node), e = 23.439 * rad
+    const ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l))
+    const dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l))
+    const ha = ((18.697374558 + 24.06570982441908 * d) % 24) * 15 * rad + lon * rad - ra, la = lat * rad
+    const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha))
+    const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha))
+    // phase from the angle between moon and sun along the ecliptic
+    const g = (357.529 + 0.98560028 * d) * rad, sun = (280.459 + 0.98564736 * d + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad
+    return { az: (az / rad + 360) % 360, el: el / rad, phase: (1 - Math.cos(l - sun)) / 2 }
+  }
+  HO.moonPos = moonPos
 
   /* Scale of the heat map – one source for image and legend: only the span of the heating schedule (backend: lowest to
      highest heating value of the active routine, without "off"/frost protection), whole degrees, at least 4 °C wide. What
@@ -1611,14 +1627,17 @@
 
       /* ---------- Weather effects (Pro floorplan_weather, weather_fx.js): only in the view, only with weather and rooms */
       const fxAllowed = () => !!HO.weatherFx && HO.can('floorplan_weather') && st.plan.weather !== false && st.plan.fx !== false
-      // Position of the sun – one place for shadows and weather effects. Preview (owner/development): force day or night.
+      // Position of the sun – one place for shadows and weather effects; `moon` = position and phase of the moon (az, el,
+      // phase) or null. Preview (owner/development): force day or night – the night of the preview has a bright moon.
+      // The effect lab (dev/fxlab) sets any position: HO.state.fxTime = {az, el, moon: {az, el, phase}}.
       function sunNow() {
         const tm = HO.state.fxTime
-        if (tm === 'day') return { az: 215, el: 32 }
-        if (tm === 'dusk') return { az: 262, el: -2 }
-        if (tm === 'night') return { az: 20, el: -25 }
-        const geo = (HO.state.overview && HO.state.overview.geo) || [51.16, 10.45]
-        return sunPos(new Date(), geo[0], geo[1])
+        if (tm && typeof tm === 'object') return { az: +tm.az || 0, el: +tm.el || 0, moon: tm.moon || null }
+        if (tm === 'day') return { az: 215, el: 32, moon: null }
+        if (tm === 'dusk') return { az: 262, el: -2, moon: null }
+        if (tm === 'night') return { az: 20, el: -25, moon: { az: 150, el: 38, phase: 0.85 } }
+        const geo = (HO.state.overview && HO.state.overview.geo) || [51.16, 10.45], now = new Date()
+        return Object.assign(sunPos(now, geo[0], geo[1]), { moon: moonPos(now, geo[0], geo[1]) })
       }
       // Weather for the effects: the real weather of the home page or a chosen preview; null if effects are not
       // allowed or switched off.
@@ -1628,12 +1647,52 @@
         if (pv) return HO.weatherFx.preset(pv, tm ? tm === 'day' : (st.wx ? st.wx.is_day !== false : sunNow().el > 0))
         return st.wx && tm ? Object.assign({}, st.wx, { is_day: tm === 'day' }) : st.wx
       }
-      // Mount, update or remove the weather canvas – depending on whether effects should run right now.
+      /* What the effects show inside the rooms (since 0.27, plan units): `windows` = the windows in an outer wall – a, b,
+         n = unit vector into the room, room = index of the room area (as in fxMask().polys), open = share of light a
+         docked roller shutter lets through; `speakers` = every placed device or group that plays right now – x, y,
+         r = radius of its symbol, room, level = volume 0…1. A muted speaker sends no waves; a floor below the ground
+         has no window light. */
+      function indoorNow() {
+        const fs = faces(), db = devById(), u = 1 / st.ppu, R = clamp(st.ppu * 0.6, 8, 15) * u
+        const roomOf = p => fs.findIndex(f => inside(f.poly, p))
+        const windows = [], speakers = []
+        for (const o of underground() ? [] : st.plan.openings) {
+          const side = o.type === 'window' ? roomSideOf(o) : null, L = dist(o.a, o.b)
+          if (!side || L < 0.2) continue
+          const n = [-(o.b[1] - o.a[1]) / L * side, (o.b[0] - o.a[0]) / L * side], m = midOf(o.a, o.b)
+          const room = roomOf([m[0] + n[0] * 0.4, m[1] + n[1] * 0.4])
+          if (room < 0) continue
+          const shut = dockedDevices(o, db).filter(d => d.kind === 'cover' && d.online && d.position != null).map(d => +d.position || 0)
+          windows.push({ a: o.a, b: o.b, n, room, open: shut.length ? clamp(1 - Math.max.apply(null, shut) / 100, 0, 1) : 1 })
+        }
+        const plays = d => !!d && d.online && HO.caps.has(d, 'playing') && !!d.playing && !d.muted && (d.volume == null || d.volume > 0)
+        const loud = d => d.volume == null ? 0.5 : clamp(d.volume / 60, 0.2, 1)
+        for (const [id, pos] of Object.entries(st.plan.devices)) {
+          const d = db[id]
+          if (!plays(d) || dockedTo(id)) continue
+          const room = roomOf([pos.x, pos.y]), box = symbolBox(pos, u)
+          if (room >= 0) speakers.push({ x: pos.x, y: pos.y, r: box ? Math.max(box.hw, box.hh) : R, room, level: loud(d) })
+        }
+        for (const g of st.plan.groups) {
+          const playing = g.members.map(id => db[id]).filter(plays), room = roomOf([g.x, g.y])
+          if (playing.length && room >= 0) speakers.push({ x: g.x, y: g.y, r: R * GROUP_SCALE, room, level: Math.max.apply(null, playing.map(loud)) })
+        }
+        return { windows, speakers }
+      }
+      // Effects without weather: only what happens inside (sound waves) – the weather is unknown or below the ground.
+      const INDOOR_ONLY = { kind: 'none', cloud: 0, rain: 0, snow: 0, wind: 0, indoor_only: true }
+      // Mount, update or remove the effect canvas – depending on whether effects should run right now. Without weather
+      // (no address, a floor below the ground, Basic, effects switched off) it still runs while a speaker plays: the
+      // sound waves need no weather and belong to Basic; the light through the windows is part of the Pro effects.
       function syncFx() {
-        const fx = !st.editing && faces().length && !underground() ? fxNow() : null
+        const shown = !st.editing && faces().length > 0 && !!HO.weatherFx
+        let fx = shown && !underground() ? fxNow() : null
+        st.indoor = shown ? indoorNow() : null
+        if (st.indoor && !(HO.can('floorplan_weather') && st.plan.fx !== false)) st.indoor.windows = []   // light is Pro, sound is not
         renderWind(fx)
+        if (!fx && st.indoor && st.indoor.speakers.length) fx = INDOOR_ONLY
         if (!fx) { if (st.fxView) { st.fxView.destroy(); st.fxView = null } return }
-        if (!st.fxView) st.fxView = HO.weatherFx.mount(wrap, { after: svg, getMask: fxMask, getSun: fxSun, getShift: fxShift })
+        if (!st.fxView) st.fxView = HO.weatherFx.mount(wrap, { after: svg, getMask: fxMask, getSun: fxSun, getShift: fxShift, getIndoor: () => st.indoor })
         st.fxView.update(fx, { level: st.plan.fx_level })
       }
       /* Wind arrow top right in the floor plan (since 0.20.1, only with weather effects): shows where the wind blows to –
@@ -1706,9 +1765,11 @@
       }
       // offset of the painted plan during a gesture (only if the weather image stays in place and draws along itself)
       const fxShift = () => live && live.fxStays ? live.shift : null
+      // Sun and moon for the effects: elevation and direction towards them in the plan (north of the plan applied).
       function fxSun() {
-        const sun = sunNow(), a = (st.plan.north + sun.az) * Math.PI / 180
-        return { el: sun.el, dir: [Math.sin(a), -Math.cos(a)], north: st.plan.north }
+        const sun = sunNow(), towards = az => { const a = (st.plan.north + az) * Math.PI / 180; return [Math.sin(a), -Math.cos(a)] }
+        const moon = sun.moon ? { el: sun.moon.el, dir: towards(sun.moon.az), phase: clamp(+sun.moon.phase || 0, 0, 1) } : null
+        return { el: sun.el, dir: towards(sun.az), north: st.plan.north, moon }
       }
 
       // settings "Wettereffekte" (next to "Wetter anzeigen"): on/off, strength, preview only for owner and COMFYOS_DEV=1
@@ -1717,7 +1778,7 @@
         const can = HO.can('floorplan_weather'), off = st.plan.weather === false || !can, lv = st.plan.fx_level === 'subtle' ? 'subtle' : 'normal'
         const lic = HO.license || {}, preview = lic.licensed_plan === 'owner' || !!lic.dev
         return `<label class="check" style="margin-top:10px"><input type="checkbox" data-f="fx" ${st.plan.fx !== false && can ? 'checked' : ''} ${off ? 'disabled' : ''}>
-            <span>Wettereffekte rund um den Grundriss ${HO.proTag('floorplan_weather')} <span class="muted small">(Regen, Schnee, Wind, Gewitter und Sonnenlicht – nur außerhalb der Räume, aus dem Wetter oben)</span></span></label>
+            <span>Wettereffekte rund um den Grundriss ${HO.proTag('floorplan_weather')} <span class="muted small">(Regen, Schnee, Wind, Gewitter und Sonnenlicht rund ums Haus, Licht von Sonne und Mond durch die Fenster)</span></span></label>
           <label class="field" style="margin-top:8px"><span>Stärke der Wettereffekte</span>
             <select data-f="fx_level" ${off || st.plan.fx === false ? 'disabled' : ''}><option value="subtle" ${lv === 'subtle' ? 'selected' : ''}>Dezent</option><option value="normal" ${lv === 'normal' ? 'selected' : ''}>Normal</option></select></label>
           ${preview ? `<label class="field" style="margin-top:8px"><span>Wetter-Vorschau <span class="muted small">(nur Owner/Entwicklung, gilt bis zum Neuladen; auch per <code>#home?fx=thunder&amp;time=night</code>)</span></span>

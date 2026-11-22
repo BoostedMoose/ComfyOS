@@ -145,7 +145,7 @@ Python mit FastAPI im Backend, eine Oberfläche aus reinem JavaScript und CSS, d
 Pro gibt es, weil die Entwicklung Zeit und Geld kostet: Jede neue Funktion muss getestet werden, benötigt eventuell neue Hardware etc. Mit Pro unterstützt du die Weiterentwicklung direkt und hältst sie am Laufen. Als Dank dafür gibt es:
 
 - **Zusätzliche Flow-Bausteine** wie Schleifen, Variablen und Push-Benachrichtigungen.
-- **Mehr Möglichkeiten im Grundriss:** beliebig viele Räume und Etagen, Fenster und Heizkörper, Heatmap und Wettereffekte.
+- **Mehr Möglichkeiten im Grundriss:** beliebig viele Räume und Etagen, Fenster und Heizkörper, Heatmap und Wettereffekte samt Licht durch die Fenster.
 - **Ein paar Extras:** unbegrenzt aktive Flows, Verläufe über 31 Tage, Energieauswertung je Gerät, mehrere Widget-Seiten und eine eigene Akzentfarbe.
 
 Pro ist eine LIFETIME Lizenz. Keine Abos, keine wiederkehrenden Kosten. Die vollständige Gegenüberstellung steht unter [Basic und Pro](docs/wiki/12-basic-und-pro.md).

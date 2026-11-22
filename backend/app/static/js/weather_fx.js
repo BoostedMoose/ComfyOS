@@ -1,7 +1,10 @@
-/* ComfyOS – weather effects around the floor plan (Pro: floorplan_weather)
-   A <canvas> above the floor plan SVG (pointer-events: none). Drawing only happens OUTSIDE the building:
+/* ComfyOS – effects on the floor plan: the weather around the house, light and sound inside (Pro: floorplan_weather;
+   the sound waves alone also run in Basic)
+   A <canvas> above the floor plan SVG (pointer-events: none). The weather only happens OUTSIDE the building:
    after every frame rooms and walls are punched out again (destination-out) – inside there are neither particles
-   nor lightning. The building shadow stays in the SVG (floorplan.js). Here, from bottom to top:
+   nor lightning. Only then the inside layer is drawn (since 0.27, drawIndoor), each part clipped to its room and
+   cut off at the walls: daylight, sunlight and moonlight that fall through the windows, and the sound waves of
+   speakers that play. The building shadow stays in the SVG (floorplan.js). Outside, from bottom to top:
      daylight · snow cover/hoarfrost patches · puddles in rain · sunlight as a gentle gradient from the sunny side
      (with dusk, heat) · cloud shadows (day) or cloud veil (night) · fog banks · sun rays with the shadow shaft of
      the house · stars and rarely a shooting star · wind as a flow around the house · rain in two
@@ -9,7 +12,7 @@
      hoarfrost glitter · thunderstorm.
    Day and night blend smoothly into each other (sun elevation from getSun); at night everything is dampened.
 
-   HO.weatherFx.mount(container, {after, getMask, getSun, getShift})
+   HO.weatherFx.mount(container, {after, getMask, getSun, getShift, getIndoor})
        -> {update(fx, {level}), redraw(), gesture(on), follow(), destroy(), animating}
      getMask()  = {box: {x, y, w, h}, polys: [[[x, y], …]], walls: [[[x, y], …]], wall: px,
                    view: {x, y, s} (plan unit -> pixel), shape: id of the building,
@@ -17,9 +20,22 @@
                   decks = balconies and terraces of the floor shown, covered = what other floors build over. Both are
                   outside for the weather – rain, snow, light and wind pass over them, they are not punched out. Only
                   the puddles keep off them: a puddle lies on the ground, never on a balcony above it or under a roof.
-     getSun()   = {el: degrees, dir: [x, y] direction to the sun in the plan, north: degrees}
+     getSun()   = {el: degrees, dir: [x, y] direction to the sun in the plan, north: degrees,
+                   moon: {el, dir, phase 0…1} or null}
      getShift() = {k, x, y} or null: how the painted plan is moved and scaled right now during a gesture
-   fx (from /api/weather) = {kind, cloud, rain, snow, wind, gust, wind_dir, thunder, storm, hail, frost, heat, is_day}
+     getIndoor() = {windows: [{a, b, n, room, open}], speakers: [{x, y, r, room, level}]} or null, in plan units:
+                  a window from a to b, n = unit vector into its room, room = index into getMask().polys, open = share
+                  of light its shutter lets through; a speaker that plays at x, y with the radius r of its symbol and
+                  its volume (level 0…1)
+   fx (from /api/weather) = {kind, cloud, rain, snow, wind, gust, wind_dir, thunder, storm, hail, frost, frost_level,
+                             heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs
+
+   Inside (since 0.27): every window in an outer wall lets the sky light in by day (a soft glow). If the sun stands on
+   its side, a patch of light lies on the floor – close to the window and short with a high sun, deep in the room with
+   a low one (WINDOW_SILL/WINDOW_HEAD: the heights of the glass) –, the room gets a touch brighter around it (bounce)
+   and the window blooms. In a clear night the moon does the same, far weaker and by its phase. A closed roller
+   shutter keeps the light out. A speaker that plays sends rings that fade on their way; their strength follows a beat,
+   so they do not march evenly. Nothing of this passes a wall: every part is clipped to the room it belongs to.
 
    Margin around the house: precipitation, wind, light and stars keep a narrow margin to the wall free (MARGIN). Clouds
    and fog lie flat over the surroundings and reach up to the wall – they are drawn onto the main image,
@@ -43,14 +59,22 @@
    precipitation) – no corner stays dark. The sunlight on top of it is a gentle gradient from the sunny side that never
    runs out to nothing, in a warm tint (--fx-sun, warmer the lower the sun stands).
 
-   Sun rays (since 0.25, reworked in 0.26.1): shafts of light of different shapes (broad, split into filaments, fine,
-   widening), each with its own life – it fades in, shimmers, breathes in width, turns a little and fades out, then a
-   new one appears elsewhere; below clouds they come and go faster and leave pauses. They wander with the clouds across
-   the light (rayDrift), on a clear day slowly with the haze (RAY_HAZE). The building throws a shadow shaft into
-   them (shadeRays): a ray that hits the house does not continue behind it.
+   Sun rays (since 0.25, reworked in 0.26.1 and 0.27): shafts of light of different shapes (broad, split into
+   filaments, fine, widening) and very different lengths, each with its own life – it reaches out while it fades in,
+   shimmers, breathes in width, sways and fades out, then a new one appears elsewhere; below clouds they come and go
+   faster and leave pauses. They fan out a little (RAY_FAN), carry a soft glow around their core, add up where they
+   cross, and dust glints in them. They wander with the clouds across the light (rayDrift), on a clear day slowly
+   with the haze (RAY_HAZE). The building throws a shadow shaft into them (shadeRays): a ray that hits the house
+   does not continue behind it.
 
-   Hoarfrost (frost, since 0.26.1): an icy veil, patches of fine ice needles lying fixed on the ground (like the
-   puddles, never in the house, but on balconies) and single crystals that glint – more in sunlight.
+   Hoarfrost (frost, since 0.26.1; from 4 °C and reworked in 0.27): an icy veil, patches of frost flowers – six ferns
+   around one point, each with side branches at 60° – and fine needles lying fixed on the ground (like the puddles,
+   never in the house, but on balconies), and crystals that glint as small four-pointed stars – more in sunlight.
+   fx.frost_level (0…1) thins it out in mild cold.
+
+   Puddles (reworked in 0.27): irregular with small pools beside them; wet ground is darker than dry, and the water
+   mirrors the sky – a faint sheen, a few narrow bright streaks in one direction for every puddle and a fine line
+   along its edge; brighter by day.
 
    Performance: at most 30 frames/s, calm images (only clouds, fog, stars, hoarfrost, sun rays) 12 frames/s,
    devicePixelRatio ≤ 2, particles by area; if a device cannot keep up, the view regulates itself down (STEPS: first
@@ -89,6 +113,13 @@
   const RAY_SIDE_MIN = 0.35       // sun rays always wander at least this share of the cloud pace across the light
   const RAY_HAZE = 0.3            // on a clear day they wander only with the haze: this share of the cloud pace
   const FROST_UNIT = 0.36         // in the hoarfrost image the radius 1 corresponds to this share of the image edge
+  const RAY_FAN = 0.07            // the sun rays fan out: turn (radians) of a ray at the edge of the frame against the light
+  // light through a window, in grid cells: the glass reaches from WINDOW_SILL to WINDOW_HEAD above the floor, the
+  // patch of light ends at the latest WINDOW_REACH behind the wall; WINDOW_LIGHT = opacity of the patch in full sun
+  const WINDOW_SILL = 0.35, WINDOW_HEAD = 1.9, WINDOW_REACH = 7, WINDOW_LIGHT = 0.34
+  const MOON_LIGHT = 0.3          // light of the full moon compared to the sun (what the eye makes of it, not the physics)
+  const PANE_W = 64, PANE_H = 128 // size of the image of a light patch
+  const SOUND_RINGS = 5, SOUND_PERIOD = 2.9, SOUND_BPM = 112   // rings of a speaker, seconds one travels, beat that shapes them
   const EDDY_MIN = 0.15           // Wirbel im Windschatten ab ~12 km/h, voll ab ~50 km/h
   const FLOW_CELLS = OLD ? 1400 : 2800   // flow grid: at most this many cells
   const TRAIL = OLD ? 8 : 12      // points in the tail of a wind line
@@ -104,8 +135,10 @@
   // step = step of the self-regulation of the view drawn last (0 = full); leaves, puddles, ripples = leaves,
   // puddles, ripples in the last frame; rays = sum of the brightness of the sun rays visible right now,
   // blocked = parts of the building that throw a shadow shaft into them, frost = hoarfrost patches in the last frame
+  // windows = windows that let light in (sky, sun or moon), beams = of them with a patch of sun- or moonlight,
+  // moon = strength of the moonlight (0…1), sound = speakers that send waves
   const stats = { frames: 0, wisps: 0, cells: 0, solid: 0, builds: 0, step: 0, leaves: 0, puddles: 0, ripples: 0, rays: 0,
-    blocked: 0, frost: 0 }
+    blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0 }
   const rnd = (a, b) => a + Math.random() * (b - a)
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
@@ -144,7 +177,8 @@
     const cs = getComputedStyle(document.documentElement), v = n => (cs.getPropertyValue(n) || '').trim()
     return { rain: v('--fx-rain') || '#c2c0c8', snow: v('--fx-snow') || '#f2f1f4', light: v('--fx-light') || '#f2f1f4',
       cloud: v('--fx-cloud') || '#0e0e11', leaf: v('--fx-leaf') || '#109482', flash: v('--fx-flash') || '#f2f1f4',
-      fog: v('--fx-fog') || '#c2c0c8', star: v('--fx-star') || '#f2f1f4', sun: v('--fx-sun') || '#f2b33d' }
+      fog: v('--fx-fog') || '#c2c0c8', star: v('--fx-star') || '#f2f1f4', sun: v('--fx-sun') || '#f2b33d',
+      moon: v('--fx-moon') || '#c2c0c8', sound: v('--fx-sound') || '#61d1c2' }
   }
   // token -> "r,g,b": gradients thus fade out in the same colour (not through black)
   const rgbCache = {}
@@ -214,28 +248,54 @@
     { taper: 0.35, stops: [[0, 0], [0.25, 0.6], [0.45, 0.9], [0.6, 0.7], [0.8, 0.35], [1, 0]] }
   ]
   /* Light shaft (sun rays) in one of the shapes of BEAM_PROFILES. Along its length it fades in briefly (no hard start)
-     and then slowly out. Built column by column once per shape and tint, after that only drawImage. The sunny side is
-     on the left. */
+     and then slowly out. Inside it lie fine filaments of their own length, so its end frays instead of stopping in a
+     line. Built once per shape and tint, after that only drawImage. The sunny side is on the left. */
   function beam(color, shape) {
-    const w = 256, h = 48, c = document.createElement('canvas'), profile = BEAM_PROFILES[shape]
+    const w = 384, h = 64, c = document.createElement('canvas'), profile = BEAM_PROFILES[shape]
     c.width = w; c.height = h
     const g = c.getContext('2d')
     for (let x = 0; x < w; x += 2) {
-      const p = (x + 1) / w, along = Math.min(1, p / 0.08) * Math.pow(1 - p, 1.2)
+      const p = (x + 1) / w, along = Math.min(1, p / 0.1) * Math.pow(1 - p, 1.4) * 0.75
       const half = h / 2 * (profile.taper + (1 - profile.taper) * p)
       const across = g.createLinearGradient(0, h / 2 - half, 0, h / 2 + half)
       for (const stop of profile.stops) across.addColorStop(stop[0], rgba(color, stop[1] * along))
       g.fillStyle = across; g.fillRect(x, h / 2 - half, 2, half * 2)
     }
+    g.globalCompositeOperation = 'lighter'
+    for (let i = 0; i < 24; i++) {
+      const v = (rnd(-1, 1) + rnd(-1, 1)) / 2, y = h / 2 + v * h * 0.34, thick = rnd(0.6, 1.8)
+      const from = rnd(0, 0.25) * w, to = rnd(0.4, 1) * w, a = rnd(0.1, 0.34) * (1 - Math.abs(v))
+      const streak = g.createLinearGradient(from, 0, to, 0)
+      streak.addColorStop(0, rgba(color, 0)); streak.addColorStop(0.2, rgba(color, a)); streak.addColorStop(1, rgba(color, 0))
+      g.fillStyle = streak; g.fillRect(from, y - thick / 2, to - from, thick)
+    }
     return c
   }
-  /* Hoarfrost patch: fine ice needles in the six directions of the ice crystal, some with side branches at 60°, densest
-     in the middle of a few soft lobes and thinning out towards an irregular edge; below them a faint white haze. Built
-     once, after that only drawImage. */
+  /* Patch of light a window throws onto the floor: the window is at the top edge, the light runs downwards. Across it
+     has soft edges and the shadow of the bar in the middle of the window; both get softer the further the light has
+     travelled, and towards its end the patch fades. Built once per tint, stretched onto the floor by a transform. */
+  function pane(color) {
+    const c = document.createElement('canvas')
+    c.width = PANE_W; c.height = PANE_H
+    const g = c.getContext('2d')
+    for (let y = 0; y < PANE_H; y += 2) {
+      const v = (y + 1) / PANE_H, along = Math.min(1, v / 0.05) * Math.pow(1 - v, 0.75), soft = 0.03 + 0.17 * v
+      const row = g.createLinearGradient(0, 0, PANE_W, 0)
+      row.addColorStop(0, rgba(color, 0)); row.addColorStop(soft, rgba(color, along))
+      row.addColorStop(0.46, rgba(color, along)); row.addColorStop(0.5, rgba(color, along * (0.4 + 0.5 * v))); row.addColorStop(0.54, rgba(color, along))
+      row.addColorStop(1 - soft, rgba(color, along)); row.addColorStop(1, rgba(color, 0))
+      g.fillStyle = row; g.fillRect(0, y, PANE_W, 2)
+    }
+    return c
+  }
+  /* Hoarfrost patch: frost flowers – six ferns around one point, each a stem with side branches at 60° that get shorter
+     towards its tip and branch once more –, around them small ice stars and fine needles in the six directions of the
+     ice crystal, densest in the middle of a few soft lobes and thinning out towards an irregular edge; below them a
+     faint white haze. Built once, after that only drawImage. */
   function rime(color) {
-    const size = 224, c = document.createElement('canvas')
+    const size = 256, c = document.createElement('canvas')
     c.width = c.height = size
-    const g = c.getContext('2d'), mid = size / 2, R = size * FROST_UNIT
+    const g = c.getContext('2d'), mid = size / 2, R = size * FROST_UNIT, SIXTH = Math.PI / 3
     const lobes = [{ x: 0, y: 0, r: 1 }]
     for (let i = Math.floor(rnd(2, 4)); i > 0; i--) {
       const a = rnd(0, TAU), d = rnd(0.3, 0.65)
@@ -251,45 +311,70 @@
       return most
     }
     for (const l of lobes) {
-      const x = mid + l.x * R, y = mid + l.y * R, r = l.r * R * 1.1, haze = g.createRadialGradient(x, y, 0, x, y, r)
-      haze.addColorStop(0, rgba(color, 0.1)); haze.addColorStop(1, rgba(color, 0))
+      const x = mid + l.x * R, y = mid + l.y * R, r = l.r * R * 1.15, haze = g.createRadialGradient(x, y, 0, x, y, r)
+      haze.addColorStop(0, rgba(color, 0.09)); haze.addColorStop(0.6, rgba(color, 0.035)); haze.addColorStop(1, rgba(color, 0))
       g.fillStyle = haze; g.fillRect(x - r, y - r, r * 2, r * 2)
     }
     g.strokeStyle = color; g.lineCap = 'round'
-    for (let i = 0; i < 520; i++) {
+    // one fern: a stem from x, y in direction a; depth = how often its branches branch again. The image is drawn far
+    // smaller than it is built – the lines are bold, so the structure survives.
+    const fern = (x, y, a, len, depth, alpha) => {
+      const cx = Math.cos(a), cy = Math.sin(a)
+      g.globalAlpha = alpha; g.lineWidth = depth > 1 ? 2.3 : depth ? 1.6 : 1.1
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + cx * len, y + cy * len); g.stroke()
+      if (!depth || len < 6) return
+      const twigs = Math.max(2, Math.round(len / 11))
+      for (let i = 1; i <= twigs; i++) {
+        const p = i / (twigs + 1), twig = len * 0.46 * (1 - 0.65 * p)
+        for (const side of [-1, 1]) fern(x + cx * len * p, y + cy * len * p, a + side * SIXTH, twig, depth - 1, alpha * 0.85)
+      }
+    }
+    // a frost flower in the middle of every lobe, turned at random; the arms differ a little in length
+    for (const l of lobes) {
+      const turn = rnd(0, SIXTH), len = l.r * R * rnd(0.6, 0.85)
+      for (let arm = 0; arm < 6; arm++) fern(mid + l.x * R, mid + l.y * R, turn + arm * SIXTH + rnd(-0.04, 0.04), len * rnd(0.7, 1), 2, 0.8)
+    }
+    // small ice stars where the frost is dense
+    for (let i = 0; i < 34; i++) {
+      const u = rnd(-1.2, 1.2), v = rnd(-1.2, 1.2), d = density(u, v)
+      if (Math.random() > d * 0.6) continue
+      const turn = rnd(0, SIXTH), len = rnd(6, 14) * (0.6 + 0.4 * d)
+      for (let arm = 0; arm < 6; arm++) fern(mid + u * R, mid + v * R, turn + arm * SIXTH, len, len > 10 ? 1 : 0, 0.4 + 0.3 * d)
+    }
+    // fine needles between them
+    for (let i = 0; i < 170; i++) {
       const u = rnd(-1.3, 1.3), v = rnd(-1.3, 1.3), d = density(u, v)
       if (Math.random() > d) continue
-      const x = mid + u * R, y = mid + v * R, a = Math.floor(rnd(0, 6)) * Math.PI / 3 + rnd(-0.12, 0.12)
-      const len = rnd(2.5, 7) * (0.6 + 0.4 * d), cx = Math.cos(a), cy = Math.sin(a)
-      g.globalAlpha = rnd(0.25, 0.7) * (0.5 + 0.5 * d); g.lineWidth = rnd(0.6, 1)
-      g.beginPath(); g.moveTo(x - cx * len / 2, y - cy * len / 2); g.lineTo(x + cx * len / 2, y + cy * len / 2)
-      if (Math.random() < 0.45) {
-        const bx = x + cx * len * 0.15, by = y + cy * len * 0.15, b = len * 0.45
-        for (const side of [-1, 1]) { g.moveTo(bx, by); g.lineTo(bx + Math.cos(a + side * Math.PI / 3) * b, by + Math.sin(a + side * Math.PI / 3) * b) }
-      }
-      g.stroke()
+      const x = mid + u * R, y = mid + v * R, a = Math.floor(rnd(0, 6)) * SIXTH + rnd(-0.12, 0.12)
+      const len = rnd(4, 9) * (0.6 + 0.4 * d), cx = Math.cos(a), cy = Math.sin(a)
+      g.globalAlpha = rnd(0.25, 0.6) * (0.5 + 0.5 * d); g.lineWidth = rnd(0.9, 1.4)
+      g.beginPath(); g.moveTo(x - cx * len / 2, y - cy * len / 2); g.lineTo(x + cx * len / 2, y + cy * len / 2); g.stroke()
     }
     return c
   }
-  /* Puddle: a flat, irregular water surface – main shape with one or two bulges, the outline from a few
-     gentle waves, stretched and rotated. Flat means: no light edge, no shading from one side (that
-     would look like a stone). The outline can just about be made out, towards the inside the water gets evenly
-     denser – the same shape many times on top of each other, each time a little smaller, gives the gradient. Built once,
-     after that only drawImage. */
-  function puddle(color) {
-    const size = 192, c = document.createElement('canvas')
-    c.width = c.height = size
-    const g = c.getContext('2d'), stretch = rnd(1.5, 2.3)
-    const waves = [1, 2, 3, 5].map(n => ({ n, a: rnd(0.04, 0.16) / Math.sqrt(n), ph: rnd(0, TAU) }))
-    const lobes = [{ x: 0, y: 0, r: 1 }]
-    for (let i = Math.floor(rnd(1, 3)); i > 0; i--) {
-      const a = rnd(0, TAU)
-      lobes.push({ x: Math.cos(a) * rnd(0.45, 0.75), y: Math.sin(a) * rnd(0.3, 0.55), r: rnd(0.35, 0.6) })
+  /* Puddle: a flat, irregular water surface – a few bulges that run into each other and two or three small pools
+     beside them, the outline from gentle waves, stretched and turned. Two images: `base` is the water – wet ground is
+     darker than dry, so it is a flat dark area with a soft edge; `gloss` what it mirrors – an even faint sheen, a few
+     narrow bright streaks across it and a fine even line along the outline. The shape is turned by hand, the streaks
+     are not: they keep one direction in every puddle. Flat means: nothing that shades a body (no gradient across the
+     whole area, no rim that is dark on one side and bright on the other, no dome that gets denser towards the middle)
+     – that looks like a stone. Built once, after that only drawImage. */
+  function puddle(color, light, dark) {
+    const size = 192, mid = size / 2, unit = size * PUDDLE_UNIT
+    const stretch = rnd(1.3, 1.9), turn = rnd(0, TAU), ct = Math.cos(turn), sn = Math.sin(turn)
+    const waves = [2, 3, 5, 7].map(n => ({ n, a: rnd(0.05, 0.17) / Math.sqrt(n), ph: rnd(0, TAU) }))
+    const lobes = [{ x: 0, y: 0, r: 0.72 }]
+    for (let i = Math.floor(rnd(2, 5)); i > 0; i--) {
+      const a = rnd(0, TAU), d = rnd(0.45, 0.85)
+      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: rnd(0.28, 0.55) })
     }
-    g.translate(size / 2, size / 2); g.rotate(rnd(0, TAU)); g.scale(size * PUDDLE_UNIT, size * PUDDLE_UNIT)
-    for (let layer = 0; layer < 12; layer++) {
-      const shrink = 1 - layer * 0.055
-      g.fillStyle = rgba(color, layer ? 0.06 : 0.2)      // the outline outside, the gradient towards the inside
+    for (let i = Math.floor(rnd(2, 4)); i > 0; i--) {      // small pools beside it
+      const a = rnd(0, TAU), d = rnd(1.15, 1.5)
+      lobes.push({ x: Math.cos(a) * d, y: Math.sin(a) * d * 0.8, r: rnd(0.07, 0.16) })
+    }
+    const sheet = () => { const c = document.createElement('canvas'); c.width = c.height = size; return c }
+    // the outline as a path, shrunk towards the middle of every bulge
+    const trace = (g, shrink) => {
       g.beginPath()
       for (const lobe of lobes) {
         for (let i = 0; i <= 48; i++) {
@@ -297,13 +382,33 @@
           let r = lobe.r * shrink
           for (const w of waves) r *= 1 + w.a * Math.sin(w.n * a + w.ph + lobe.r * 9)
           const x = lobe.x * shrink + Math.cos(a) * r, y = (lobe.y * shrink + Math.sin(a) * r) / stretch
-          if (i) g.lineTo(x, y); else g.moveTo(x, y)
+          const px = mid + (x * ct - y * sn) * unit, py = mid + (x * sn + y * ct) * unit
+          if (i) g.lineTo(px, py); else g.moveTo(px, py)
         }
         g.closePath()
       }
-      g.fill()
     }
-    return c
+    const base = sheet(), g = base.getContext('2d')
+    for (const layer of [[1.03, 0.2], [1, 0.3], [0.97, 0.35]]) {   // a soft edge, then flat
+      g.fillStyle = rgba(dark, layer[1]); trace(g, layer[0]); g.fill()
+    }
+    g.fillStyle = rgba(color, 0.07); trace(g, 0.97); g.fill()
+    const gloss = sheet(), h = gloss.getContext('2d')
+    h.save()
+    trace(h, 0.99); h.clip()
+    h.fillStyle = rgba(light, 0.07); h.fillRect(0, 0, size, size)
+    for (let i = Math.floor(rnd(2, 5)); i > 0; i--) {
+      const at = rnd(0.3, 0.7), half = rnd(0.008, 0.028), band = h.createLinearGradient(0, 0, size, size)
+      band.addColorStop(at - half, rgba(light, 0)); band.addColorStop(at, rgba(light, rnd(0.25, 0.5))); band.addColorStop(at + half, rgba(light, 0))
+      h.fillStyle = band; h.fillRect(0, 0, size, size)
+    }
+    h.restore()
+    // the line of the water's edge: the area between the outline and a slightly smaller one, evenly bright
+    const rim = sheet(), r = rim.getContext('2d')
+    r.fillStyle = rgba(light, 0.2); trace(r, 1); r.fill()
+    r.globalCompositeOperation = 'destination-out'; r.fillStyle = '#000'; trace(r, 0.965); r.fill()
+    h.drawImage(rim, 0, 0)
+    return { base, gloss }
   }
 
   // Mount the weather canvas into the frame of the floor plan. opts: getMask (outline of the building), getSun (position
@@ -323,6 +428,7 @@
     let fx = null, level = 'normal', col = tokens(), W = 0, H = 0, dpr = 1
     let drops = [], ripples = [], flakes = [], pellets = [], leaves = [], wisps = [], clouds = [], banks = [], stars = [], glints = []
     let rays = [], puddles = [], cloudImg = [], cloudTint = '', fogImg = [], beamImg = [], beamTint = ''
+    const paneImg = {}                    // image of a light patch per tint (sunlight in its steps, moonlight)
     let puddleShape = null, wet = 0       // puddles: for which building they lie and how large they are right now (0…1.3)
     let frost = [], frostShape = null     // hoarfrost patches (plan units) and the building they were laid out for
     let sunUp = false                     // sunlight (and with it sun rays) can be seen right now
@@ -359,6 +465,8 @@
       return true
     }
     const amount = () => (level === 'subtle' ? 0.55 : 1) * STEPS[step].amount
+    // How much hoarfrost lies (0…1): fx.frost_level in mild cold, full without it (previews, older weather data).
+    const frostOf = () => !fx || !fx.frost ? 0 : typeof fx.frost_level === 'number' ? clamp(fx.frost_level, 0.2, 1) : 1
     // How strongly the wind swells and subsides: as far as the measured gusts lie above the mean wind (fx.gust).
     function gustiness() {
       const calm = fx.storm ? 0.35 : 0.15
@@ -378,7 +486,7 @@
       if (!fx) return
       darkNow = darkOf(sunNow())
       const night = darkNow > 0.5
-      const key = [fx.kind, fx.rain, fx.snow, fx.wind, fx.gust, fx.cloud, !!fx.hail, !!fx.frost, !!fx.storm, night, level, step, W, H,
+      const key = [fx.kind, fx.rain, fx.snow, fx.wind, fx.gust, fx.cloud, !!fx.hail, frostOf(), !!fx.storm, night, level, step, W, H,
         col.cloud, col.fog, col.light].join('|')
       if (key === seedKey) return
       seedKey = key
@@ -409,30 +517,33 @@
       if (fx.kind === 'fog' && !fogImg.length) fogImg = [blob(col.fog), blob(col.fog)]
       fit(banks, fx.kind === 'fog' ? 6 : 0, i => { const w = rnd(0.5, 0.9) * M; return { x: rnd(0, W), y: rnd(0, H), w, h: w * 0.5, img: fogImg[i % 2], v: rnd(4, 10) } })
       // sun rays: many on a clear day, fewer the more clouds there are; each lives on its own (bornRay)
-      const nRay = ({ clear: 9, partly: 8, overcast: 4, storm: 3 })[fx.kind] || 0
+      const nRay = ({ clear: 11, partly: 9, overcast: 4, storm: 3 })[fx.kind] || 0
       fit(rays, Math.round(nRay * soft), () => bornRay({}, true))
       sunUp = sunlitOf(sunNow())
       // stars (clear to slightly cloudy night) and hoarfrost glitter: fixed places, only the brightness breathes
       const sky = ['clear', 'partly', 'storm'].indexOf(fx.kind) >= 0 ? Math.pow(1 - clamp(fx.cloud || 0, 0, 1), 1.4) : 0
       const dot = (lo, hi) => () => ({ u: Math.random(), v: Math.random(), r: rnd(lo, hi), a: rnd(0.3, 0.85), ph: rnd(0, TAU), sp: rnd(0.4, 1.6) })
       fit(stars, Math.round(clamp(area / 5200, 14, 110) * sky * soft), dot(0.5, 1.25))
-      fit(glints, fx.frost ? Math.round(clamp(area / 9000, 10, 60) * soft) : 0, dot(1.6, 3))
+      fit(glints, fx.frost ? Math.round(clamp(area / 6000, 14, 90) * soft * (0.5 + 0.5 * frostOf())) : 0, dot(2.2, 4.6))
       const now = performance.now()
       if (!nextFlash) nextFlash = now + rnd(2000, 6000)
       if (!nextMeteor) nextMeteor = now + rnd(20000, 90000)
     }
     // A sun ray begins its life (first = when the weather is laid out: somewhere in the middle of it, so that rays can
     // be seen at once). off = position across the light, w = width (share of the frame), a = brightness, len/start =
-    // length and where along the light it begins, life/rest = how long it shines and pauses afterwards, ph/sp =
-    // shimmer, tilt = small turn against the light. Below clouds rays live shorter, pause longer and start further in.
+    // length (many short ones, a few very long) and where along the light it begins, grow = share of its length it has
+    // when it appears (it reaches out while it brightens), life/rest = how long it shines and pauses afterwards, ph/sp =
+    // shimmer, tilt = small turn against the light, motes = dust that glints in it (u along, v across, s = pace).
+    // Below clouds rays live shorter, pause longer and start further in.
     function bornRay(r, first) {
       const cloudy = !fx || fx.kind !== 'clear'
       r.shape = Math.floor(Math.random() * BEAM_PROFILES.length)
-      r.off = rnd(-1, 1); r.w = rnd(0.05, 0.15) * (r.shape === 2 ? 0.45 : 1); r.a = rnd(0.55, 1)
-      r.len = rnd(0.6, 1.15); r.start = rnd(0, cloudy ? 0.45 : 0.2)
+      r.off = rnd(-1, 1); r.w = rnd(0.045, 0.16) * (r.shape === 2 ? 0.45 : 1); r.a = rnd(0.5, 1)
+      r.len = 0.3 + 1.05 * Math.pow(Math.random(), 1.4); r.start = rnd(0, cloudy ? 0.5 : 0.25); r.grow = rnd(0.25, 0.6)
       r.life = cloudy ? rnd(4, 10) : rnd(10, 22); r.rest = cloudy ? rnd(1, 7) : rnd(0, 2)
       r.age = first ? rnd(0, r.life) : 0
       r.ph = rnd(0, TAU); r.ph2 = rnd(0, TAU); r.sp = rnd(0.35, 0.9); r.sp2 = rnd(0.1, 0.25); r.tilt = rnd(-0.035, 0.035)
+      r.motes = fit(r.motes || [], OLD ? 2 : 5, () => ({ u: rnd(0.05, 0.9), v: rnd(-0.3, 0.3), s: rnd(0.008, 0.03), r: rnd(0.5, 1.1), ph: rnd(0, TAU) }))
       return r
     }
     // Brightness of a sun ray now (0…1): fades in and out softly over its life, shimmers in between (two slow waves);
@@ -480,8 +591,8 @@
     // across the balcony above it. How large they are is determined later by the rain.
     function seedPuddles(mask) {
       puddleShape = mask.shape || ''
-      const images = [0, 1, 2, 3, 4].map(() => puddle(col.rain))
-      puddles = groundSpots(mask, { per: 70, min: 3, max: 9, r: [0.9, 1.9], keep: 1.7, decks: false })
+      const images = [0, 1, 2, 3, 4].map(() => puddle(col.rain, col.light, col.cloud))
+      puddles = groundSpots(mask, { per: 55, min: 4, max: 11, r: [1, 2], keep: 1.9, decks: false })
         .map((s, i) => Object.assign(s, { img: images[i % images.length] }))
     }
     // Lay out hoarfrost patches for this building: close together over the ground, also on balconies and terraces (frost
@@ -784,10 +895,12 @@
       const up = sunlit ? clamp((sun.el + 6) / 12, 0, 1) : 0, low = sunlit ? clamp(1 - sun.el / 25, 0, 1) : 0, heat = fx.heat || 0
       // warm tint of the sunlight: pale at noon, golden with a low sun (in steps, so that the shaft images are rarely rebuilt)
       const sunColor = mix(col.light, col.sun, Math.round((0.2 + 0.45 * low) * 10) / 10)
-      if (day > 0) {
-        const dull = fx.rain > 0 || fx.snow > 0 || fx.kind === 'fog' || fx.thunder
-        wash(sunlit ? mix(col.light, col.sun, 0.1) : col.light, (dull ? 0.035 : 0.075 - 0.03 * clamp(fx.cloud || 0, 0, 1)) * day * k)
-      }
+      const dull = fx.rain > 0 || fx.snow > 0 || fx.kind === 'fog' || !!fx.thunder, cloud = clamp(fx.cloud || 0, 0, 1)
+      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.1) : col.light, (dull ? 0.075 : 0.16 - 0.06 * cloud) * day * k)
+      // moonlight: only in a clear night, by the phase of the moon and how high it stands
+      const moon = sun && sun.moon, open = (fx.kind === 'clear' || fx.kind === 'partly') && !dull
+      const moonlit = moon && moon.el > 0 && open ? moon.phase * Math.pow(1 - cloud, 1.5) * clamp(moon.el / 12, 0, 1) * clamp((dark - 0.6) / 0.4, 0, 1) : 0
+      stats.moon = moonlit
       // 1) Ground and air: snow cover brightens the surroundings, hoarfrost lies in patches of ice needles
       const raining = fx.rain > 0, wetGoal = raining ? 0.45 + 0.85 * fx.rain : 0
       if (raining && puddleShape !== (mask.shape || '')) { seedPuddles(mask); wet = wetGoal }
@@ -796,13 +909,14 @@
       wet = dt ? wet + (wetGoal - wet) * Math.min(1, dt * 0.6) : running() ? wet : wetGoal
       if (fx.snow > 0 || fx.frost || raining || wet > 0.03) onEdge()
       if (fx.snow > 0) wash(col.snow, (0.03 + 0.04 * fx.snow) * k * (1 - 0.5 * dark))
-      else if (fx.frost) wash(col.snow, 0.03 * k)
-      // hoarfrost: patches of fine ice needles, fixed on the ground; at night they stay visible, only dimmer
+      else if (fx.frost) wash(col.snow, 0.04 * k * frostOf())
+      // hoarfrost: patches of frost flowers, fixed on the ground; at night they stay visible, only dimmer. In mild cold
+      // fewer of them lie, and paler.
       let frostShown = 0
       if (fx.frost && frost.length && mask.view) {
-        const v = mask.view
-        ctx.globalAlpha = 0.55 * k * (1 - 0.35 * dark)
-        for (const p of frost) {
+        const v = mask.view, cold = frostOf(), some = Math.ceil(frost.length * (0.45 + 0.55 * cold))
+        ctx.globalAlpha = 0.62 * k * (1 - 0.3 * dark) * (0.6 + 0.4 * cold)
+        for (const p of frost.slice(0, some)) {
           const half = p.r * v.s / FROST_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s
           if (x + half < box.x || x - half > bx1 || y + half < box.y || y - half > by1) continue
           ctx.drawImage(p.img, x - half, y - half, half * 2, half * 2)
@@ -815,12 +929,15 @@
       // puddles: the stronger the rain, the larger. They lie fixed on the ground and keep a distance to the wall.
       let puddlesShown = 0
       if (puddles.length && wet > 0.03 && mask.view) {
-        const v = mask.view
-        ctx.globalAlpha = 0.2 * pk * clamp(wet * 2.5, 0, 1)
+        // the water, and on it what it mirrors: more by day (the bright sky), a remainder at night; it shimmers a little
+        const v = mask.view, full = pk * clamp(wet * 2.5, 0, 1), sky = 0.35 + 0.5 * day
         for (const p of puddles) {
           const half = p.r * v.s * wet / PUDDLE_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s
           if (x + half < box.x || x - half > bx1 || y + half < box.y || y - half > by1) continue
-          ctx.drawImage(p.img, x - half, y - half, half * 2, half * 2)
+          ctx.globalAlpha = 0.9 * full
+          ctx.drawImage(p.img.base, x - half, y - half, half * 2, half * 2)
+          ctx.globalAlpha = sky * full * (0.88 + 0.12 * Math.sin(t * 1.1 + p.x * 3))
+          ctx.drawImage(p.img.gloss, x - half, y - half, half * 2, half * 2)
           puddlesShown++
         }
       }
@@ -833,13 +950,19 @@
       const reach = sunlit ? 0.5 * (Math.abs(sun.dir[0]) * box.w + Math.abs(sun.dir[1]) * box.h) : 0
       if (sunlit) {
         onEdge()
-        const cloud = fx.cloud || 0
-        const strength = (fx.kind === 'clear' ? 0.09 : fx.kind === 'overcast' ? 0.035 : 0.065) * (1 - 0.4 * cloud) * up * (1 + 0.35 * heat) * k
+        const strength = (fx.kind === 'clear' ? 0.1 : fx.kind === 'overcast' ? 0.035 : 0.065) * (1 - 0.4 * cloud) * up * (1 + 0.35 * heat) * k
         const far = 0.35 + 0.65 * low
         const g = ctx.createLinearGradient(mx + sun.dir[0] * reach, my + sun.dir[1] * reach, mx - sun.dir[0] * reach * far, my - sun.dir[1] * reach * far)
         g.addColorStop(0, rgba(sunColor, 1)); g.addColorStop(0.5, rgba(sunColor, 0.6)); g.addColorStop(1, rgba(sunColor, 0.33))
         ctx.globalAlpha = clamp(strength, 0, 0.16); ctx.fillStyle = g; ctx.fillRect(box.x, box.y, box.w, box.h)
         if (heat > 0) wash(sunColor, 0.03 * heat * up * k)
+      } else if (moonlit > 0.02) {
+        // moonlight: the same gradient from the side of the moon, far weaker and cool
+        onEdge()
+        const far = 0.5 * (Math.abs(moon.dir[0]) * box.w + Math.abs(moon.dir[1]) * box.h)
+        const g = ctx.createLinearGradient(mx + moon.dir[0] * far, my + moon.dir[1] * far, mx - moon.dir[0] * far, my - moon.dir[1] * far)
+        g.addColorStop(0, rgba(col.moon, 1)); g.addColorStop(1, rgba(col.moon, 0.3))
+        ctx.globalAlpha = 0.07 * moonlit * k; ctx.fillStyle = g; ctx.fillRect(box.x, box.y, box.w, box.h)
       }
       flushEdge()
       // 3) Clouds: a few large, soft blobs, move in the wind direction – consistent with the wind lines, a little slower
@@ -872,7 +995,7 @@
         onEdge()
         const cloudy = fx.kind !== 'clear', ax = -sun.dir[0], ay = -sun.dir[1], angle = Math.atan2(ay, ax)
         const across = 0.5 * (Math.abs(ay) * box.w + Math.abs(ax) * box.h), span = Math.max(box.w, box.h)
-        const power = (cloudy ? (fx.kind === 'partly' ? 0.15 : 0.13) : 0.11 * (1 + 0.35 * heat)) * up * k
+        const power = (cloudy ? (fx.kind === 'partly' ? 0.16 : 0.13) : 0.13 * (1 + 0.35 * heat)) * up * k
         // The rays wander with the wind like the clouds whose gaps they fall through: what shows from above is the
         // movement across the light, at the pace of the clouds (on a clear day only with the haze, RAY_HAZE). If the
         // wind blows almost along the light, they still wander slowly to one side (RAY_SIDE_MIN) – standing rays under
@@ -884,21 +1007,39 @@
         // moved with the plan (carry) and with the wind: offset across the light; one that leaves comes back in on the
         // opposite side
         const pan = (rayPan[1] * ax - rayPan[0] * ay + rayDrift) / (across || 1)
+        // where rays cross, their light adds up
+        ctx.globalCompositeOperation = 'lighter'
+        ctx.fillStyle = sunColor
         for (const r of rays) {
           if (dt && (r.age += dt) >= r.life + r.rest) bornRay(r, false)
           const glow = rayGlow(r, t)
           if (glow < 0.01) continue
           lit += glow
-          let off = r.off + pan + 1
+          let off = r.off + pan + 0.03 * Math.sin(t * 0.11 + r.ph2) + 1
           off = off - 2 * Math.floor(off / 2) - 1
-          const wide = r.w * span * (0.85 + 0.15 * Math.sin(t * r.sp2 + r.ph)), long = 2 * reach * r.len * (0.75 + 0.5 * low)
+          // it reaches out over the first half of its life: from `grow` of its length to all of it
+          let out = Math.min(1, r.age / (0.5 * r.life))
+          out = r.grow + (1 - r.grow) * out * out * (3 - 2 * out)
+          const wide = r.w * span * (0.85 + 0.15 * Math.sin(t * r.sp2 + r.ph)), whole = 2 * reach * r.len * (0.75 + 0.5 * low)
+          const long = whole * out, from = r.start * whole, alpha = clamp(power * r.a * glow, 0, 0.26)
           ctx.save()
           ctx.translate(mx - ax * reach - ay * off * across, my - ay * reach + ax * off * across)
-          ctx.rotate(angle + r.tilt + 0.015 * Math.sin(t * r.sp2 * 0.7 + r.ph2))
-          ctx.globalAlpha = clamp(power * r.a * glow, 0, 0.22)
-          ctx.drawImage(beamImg[r.shape], r.start * long, -wide / 2, long, wide)
+          ctx.rotate(angle + off * RAY_FAN + r.tilt + 0.012 * Math.sin(t * r.sp2 * 0.7 + r.ph2))
+          // a soft glow around the shaft, then the shaft itself
+          ctx.globalAlpha = alpha * 0.45
+          ctx.drawImage(beamImg[0], from - long * 0.04, -wide * 1.3, long * 1.08, wide * 2.6)
+          ctx.globalAlpha = alpha
+          ctx.drawImage(beamImg[r.shape], from, -wide / 2, long, wide)
+          // dust in the light: single motes drift along the shaft and glint
+          for (const m of r.motes) {
+            if (dt && (m.u += m.s * dt) > 0.95) m.u = 0.05
+            const shine = Math.min(1, m.u / 0.15) * (1 - m.u) * (0.5 + 0.5 * Math.sin(t * 1.7 + m.ph))
+            ctx.globalAlpha = clamp(alpha * 3.4 * shine, 0, 0.6)
+            ctx.fillRect(from + m.u * long - m.r, (m.v + 0.06 * Math.sin(t * 0.4 + m.ph)) * wide - m.r, m.r * 2, m.r * 2)
+          }
           ctx.restore()
         }
+        ctx.globalCompositeOperation = 'source-over'
         if (lit) blocked = shadeRays(mask, ax, ay)
         flushEdge()
       }
@@ -1139,14 +1280,19 @@
       }
       // 12) Hoarfrost: single crystals glint briefly – brighter in sunlight
       if (glints.length) {
+        // a small four-pointed star: two slim diamonds crossed, a bright core
         ctx.fillStyle = col.snow
-        const sparkle = 0.8 * (1 + 0.4 * up) * k
+        const sparkle = 0.9 * (1 + 0.4 * up) * k
         for (const s of glints) {
           const a = Math.pow(Math.max(0, Math.sin(s.ph + t * s.sp)), 3)
           if (a < 0.03) continue
-          const x = box.x + s.u * box.w, y = box.y + s.v * box.h
+          const x = box.x + s.u * box.w, y = box.y + s.v * box.h, r = s.r * (0.6 + 0.4 * a), slim = 0.16 * r + 0.3
           ctx.globalAlpha = Math.min(1, a * s.a * sparkle)
-          ctx.fillRect(x - s.r, y - 0.4, s.r * 2, 0.8); ctx.fillRect(x - 0.4, y - s.r, 0.8, s.r * 2)
+          ctx.beginPath()
+          ctx.moveTo(x - r, y); ctx.lineTo(x, y - slim); ctx.lineTo(x + r, y); ctx.lineTo(x, y + slim); ctx.closePath()
+          ctx.moveTo(x, y - r); ctx.lineTo(x + slim, y); ctx.lineTo(x, y + r); ctx.lineTo(x - slim, y); ctx.closePath()
+          ctx.arc(x, y, slim * 1.3, 0, TAU)
+          ctx.fill()
         }
       }
       // 13) Thunderstorm: short, double brightening pulse every 8–25 s, occasionally a lightning bolt at the edge (with a soft glow)
@@ -1177,7 +1323,124 @@
       edgeCtx.restore()
       mainCtx.restore()
       punch(mainCtx, false)      // clouds and fog: exactly up to the wall, nothing inside
+      drawIndoor(mask, sun, t, { day, dark, k, cloud, dull, sunlit, sunColor, moonlit, heat })
       if (!shown) { shown = true; setTimeout(() => { canvas.style.opacity = '' }, 30) }
+    }
+    /* The inside layer (since 0.27), drawn onto the main image after the building was punched out: light through the
+       windows and the sound waves of speakers (getIndoor, plan units). Every part is clipped to the room it belongs to
+       and the walls are cut out again afterwards, so nothing passes a wall; only the bloom of a sunlit window lies on
+       top of its wall. e = what the frame already knows: day and dark (0…1), k (strength), cloud, dull (precipitation
+       or fog), sunlit, sunColor, moonlit (0…1), heat. */
+    function drawIndoor(mask, sun, t, e) {
+      const indoor = opts.getIndoor ? opts.getIndoor() : null, v = mask.view, c = mainCtx, box = mask.box
+      stats.windows = stats.beams = stats.sound = 0
+      if (!indoor || !v || !(v.s > 0)) return
+      const polys = mask.polys || [], at = p => [v.x + p[0] * v.s, v.y + p[1] * v.s]
+      // limit drawing to one room; false if the room does not exist (any more)
+      const enter = index => {
+        const poly = polys[index]
+        if (!poly || poly.length < 3) return false
+        c.save()
+        c.beginPath(); c.moveTo(poly[0][0], poly[0][1])
+        for (let i = 1; i < poly.length; i++) c.lineTo(poly[i][0], poly[i][1])
+        c.closePath(); c.clip()
+        return true
+      }
+      // a round glow that fades outwards
+      const glow = (x, y, r, color, alpha) => {
+        const g = c.createRadialGradient(x, y, 0, x, y, r)
+        g.addColorStop(0, rgba(color, alpha)); g.addColorStop(0.5, rgba(color, alpha * 0.45)); g.addColorStop(1, rgba(color, 0))
+        c.globalAlpha = 1; c.fillStyle = g; c.fillRect(x - r, y - r, 2 * r, 2 * r)
+      }
+      c.save()
+      c.beginPath(); c.rect(box.x, box.y, box.w, box.h); c.clip()
+      // 1) Light through the windows. Sky light by day: a glow that spills in at every window. Direct light: the sun
+      //    by day, the moon in a clear night – a patch on the floor if it stands on the side of the window.
+      const blooms = []
+      if (!fx.indoor_only && indoor.windows.length) {
+        const skylight = e.day * (e.dull ? 0.45 : 1 - 0.45 * e.cloud)
+        let dir = null, el = 0, power = 0, tint = e.sunColor
+        if (e.sunlit && sun.el > 0.5) {
+          // through clouds less of it arrives; partly cloudy, clouds pass in front of the sun – it swells and fades slowly
+          const through = fx.kind === 'clear' ? 1 : fx.kind === 'partly' ? 0.7 : 0.22
+          const passing = fx.kind === 'partly' ? 0.75 + 0.25 * Math.sin(t * 0.19) * Math.sin(t * 0.07 + 1.3) : 1
+          dir = sun.dir; el = sun.el; power = through * passing * clamp(sun.el / 4, 0, 1) * (1 + 0.25 * e.heat)
+        } else if (e.moonlit > 0.02) {
+          dir = sun.moon.dir; el = sun.moon.el; power = MOON_LIGHT * e.moonlit; tint = col.moon
+        }
+        if (dir && !paneImg[tint]) paneImg[tint] = pane(tint)
+        // by day no room is pitch dark next to the bright surroundings: a breath of light in all of them
+        if (skylight > 0.02) {
+          c.globalAlpha = 0.03 * skylight * e.k; c.fillStyle = col.light
+          c.beginPath()
+          for (const poly of polys) { if (poly.length < 3) continue; c.moveTo(poly[0][0], poly[0][1]); for (let i = 1; i < poly.length; i++) c.lineTo(poly[i][0], poly[i][1]); c.closePath() }
+          c.fill()
+        }
+        const rooms = {}
+        for (const w of indoor.windows) (rooms[w.room] = rooms[w.room] || []).push(w)
+        for (const index of Object.keys(rooms)) {
+          if (!enter(+index)) continue
+          let brightest = 0
+          for (const w of rooms[index]) {
+            const a = at(w.a), b = at(w.b), mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], len = Math.hypot(b[0] - a[0], b[1] - a[1])
+            const sky = skylight * w.open
+            if (sky > 0.02) glow(mid[0] + w.n[0] * len * 0.1, mid[1] + w.n[1] * len * 0.1, len * 0.8 + 1.8 * v.s, col.light, 0.2 * sky * e.k)
+            // n points into the room: light comes in if the sun (or the moon) stands on the other side of the window
+            const facing = dir ? -(dir[0] * w.n[0] + dir[1] * w.n[1]) : 0, direct = power * w.open * clamp((facing - 0.05) / 0.3, 0, 1)
+            if (sky > 0.02 || direct > 0.01) stats.windows++
+            if (direct <= 0.01) continue
+            // the patch on the floor: from where the light over the sill lands to where the light below the head lands
+            const slope = Math.tan(el * Math.PI / 180), far = Math.min(WINDOW_REACH, WINDOW_HEAD / slope), near = Math.min(WINDOW_SILL / slope, far * 0.22)
+            const lx = -dir[0] * v.s, ly = -dir[1] * v.s, deep = far - near
+            c.save()
+            c.transform((b[0] - a[0]) / PANE_W, (b[1] - a[1]) / PANE_W, lx * deep / PANE_H, ly * deep / PANE_H, a[0] + lx * near, a[1] + ly * near)
+            c.globalAlpha = clamp(WINDOW_LIGHT * direct * e.k, 0, 0.5)
+            c.drawImage(paneImg[tint], 0, 0)
+            c.restore()
+            // what the lit floor throws back into the room
+            glow(mid[0] + lx * (near + deep * 0.45), mid[1] + ly * (near + deep * 0.45), (2.2 + 0.45 * deep) * v.s + len * 0.5, tint, 0.085 * direct * e.k)
+            brightest = Math.max(brightest, direct)
+            blooms.push({ x: mid[0], y: mid[1], len, turn: Math.atan2(b[1] - a[1], b[0] - a[0]), a: direct, tint })
+            stats.beams++
+          }
+          // a room with direct light is a touch brighter as a whole
+          if (brightest > 0) { c.globalAlpha = 0.04 * brightest * e.k; c.fillStyle = tint; c.fillRect(box.x, box.y, box.w, box.h) }
+          c.restore()
+        }
+      }
+      // 2) Sound: rings spread from every speaker that plays and fade on their way. How strong a ring is was decided by
+      //    the beat at the moment it left the speaker – so the rings differ and the speaker itself pulses with it.
+      const beat = time => 0.4 + 0.6 * Math.pow(Math.abs(Math.sin(time * Math.PI * SOUND_BPM / 60)), 2.2) * (0.75 + 0.25 * Math.sin(time * 0.9))
+      for (const s of indoor.speakers) {
+        if (!enter(s.room)) continue
+        const mid = at([s.x, s.y]), r0 = s.r * v.s + 2, reach = r0 + (1.5 + 2.7 * s.level) * v.s
+        glow(mid[0], mid[1], r0 * (1.5 + 0.5 * beat(t)), col.sound, 0.2 * beat(t) * e.k)
+        c.strokeStyle = col.sound
+        for (let i = 0; i < SOUND_RINGS; i++) {
+          const p = (t / SOUND_PERIOD + i / SOUND_RINGS) % 1, loud = beat(t - p * SOUND_PERIOD)
+          const a = Math.min(1, p / 0.1) * Math.pow(1 - p, 1.6) * (0.35 + 0.65 * loud) * (0.5 + 0.5 * s.level)
+          if (a < 0.01) continue
+          c.globalAlpha = 0.62 * a * e.k; c.lineWidth = 0.9 + 1.5 * loud * (1 - 0.5 * p)
+          c.beginPath(); c.arc(mid[0], mid[1], r0 + p * (reach - r0), 0, TAU); c.stroke()
+        }
+        c.restore()
+        stats.sound++
+      }
+      // the walls stay free: the rooms reach to the middle of their walls
+      c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.strokeStyle = '#000'
+      c.lineJoin = 'round'; c.lineCap = 'round'; c.lineWidth = mask.wall || 6
+      c.beginPath()
+      for (const p of mask.walls || []) { if (p.length < 2) continue; c.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) c.lineTo(p[i][0], p[i][1]) }
+      c.stroke()
+      c.globalCompositeOperation = 'source-over'
+      // 3) Bloom: a window with direct light glows itself – a flat halo along the glass, on top of the wall
+      for (const b of blooms) {
+        c.save()
+        c.translate(b.x, b.y); c.rotate(b.turn); c.scale(1, 0.3)
+        glow(0, 0, b.len * 0.56, b.tint, 0.26 * b.a * e.k)
+        c.restore()
+      }
+      c.restore()
     }
     /* Shadow shaft of the building in the sun rays: light that hits the house does not continue behind it. The rooms of
        the floor shown are swept along the light (ax, ay) beyond the frame – the room itself plus one parallelogram per
@@ -1233,9 +1496,11 @@
     }
 
     /* ---------- Sequence */
-    // fast (30 frames/s) only as long as something falls, flies or flashes; for clouds, fog, stars, hoarfrost and sun rays a
+    // Does a speaker play on the floor shown? (Its sound waves move – the image then runs at the fast pace.)
+    const sounding = () => { const indoor = opts.getIndoor ? opts.getIndoor() : null; return !!(indoor && indoor.speakers.length) }
+    // fast (30 frames/s) only as long as something falls, flies, flashes or sounds; for clouds, fog, stars, hoarfrost and sun rays a
     // calm tick is enough. Stars only count in darkness, sun rays only while the sun shines.
-    const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor)
+    const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor || sounding())
     const animated = () => !!fx && !REDUCED && !!(quick() || clouds.length || banks.length || (stars.length && darkNow > 0.15) || glints.length ||
       (rays.length && sunUp) || fx.thunder)
     const running = () => alive && !held && animated() && visible && !document.hidden
