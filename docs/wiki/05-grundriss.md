@@ -40,7 +40,7 @@ Ein Keller zeigt kein Wetter. Weitere Stockwerke gehören zu Pro, Balkone und Te
 - Nicht platzierte Geräte stehen unter dem Plan. Antippen oder in den Plan ziehen.
 - **Andocken:** Ein Fensterkontakt oder Rollladen auf einem Fenster oder einer Tür und ein Thermostat auf einem Heizkörper sitzen als Punkt mittig am Element. An einem Element haben bis zu vier Geräte Platz – etwa Kontakt und Rollladen am selben Fenster; ihre Punkte liegen nebeneinander. Wegziehen löst sie wieder.
 - **Gerätegruppen:** Mehrere Geräte zu einem Punkt zusammenfassen, etwa die zwei Lampen über dem Sofa.
-- **Symbole:** Jedes Gerät erscheint als Blase mit dem Zeichen seiner Art – der Rahmen ist grün, wenn es an oder aktiv ist. Geräte, die im Raum auffallen, bekommen ein eigenes Symbol in Draufsicht: Fernseher, Soundbar, HiFi-Anlage, Stehlampe, Kühlschrank, Sofa, Bett und rund 20 weitere. Ein farbiger Punkt an der Ecke zeigt den Zustand. Solche Symbole lassen sich drehen und in der Größe ändern – im Editor die Ecke des Rahmens ziehen –, damit sie zum Raum passen. Auch eine Gruppe kann ein Symbol tragen; es erscheint dann in der Gruppenblase.
+- **Symbole:** Jedes Gerät erscheint als Blase mit dem Zeichen seiner Art – der Rahmen ist grün, wenn es an oder aktiv ist. Geräte, die im Raum auffallen, bekommen ein eigenes Symbol in Draufsicht: Fernseher, Soundbar, HiFi-Anlage, Stehlampe, Kühlschrank, Sofa, Bett und rund 20 weitere. Ein farbiger Punkt an der Ecke zeigt den Zustand. Solche Symbole lassen sich drehen und frei skalieren – im Editor die Ecke des Rahmens für die Größe, die Mitte rechts für die Breite, die Mitte unten für die Höhe; die Linien bleiben dabei gleich stark. So wird aus der Lichtleiste ein langer Streifen hinter dem Fernseher. Auch eine Gruppe kann ein Symbol tragen; es erscheint dann in der Gruppenblase.
 
 Ein Gerät gehört zu dem Raum, in dem es steht. Mit Home Base schreibt ComfyOS Räume und Zuordnungen auch dorthin.
 
@@ -50,6 +50,7 @@ Ein Gerät gehört zu dem Raum, in dem es steht. Mit Home Base schreibt ComfyOS 
 - **Temperaturen:** Name und Durchschnitt stehen in jedem Raum.
 - **Heatmap:** Heizkörper leuchten nach gemessener Temperatur. Die Skala reicht vom niedrigsten bis zum höchsten Wert deines Heizplans. Ein offenes Fenster drängt die Wärme mit pulsierender kalter Luft zurück.
 - **Schatten nach Sonnenstand:** Das Haus wirft tagsüber einen Schatten, nachts liegt ein weicher Hof darum. Dafür stellst du im Editor einmal ein, wo Norden ist.
+- **Lampenschein:** Jede Lampe, die an ist, leuchtet im Plan in ihrer echten Farbe – Weißton, Farbe, Szene oder Farbverlauf. Das Licht geht von der Blase aus oder vom ganzen Symbol, bei einer Lichtleiste also über ihre ganze Länge, ein Farbverlauf liegt entlang der Leiste. Es endet an den Wänden und fällt durch offene Türen. Gedimmte Lampen leuchten schwächer, Lichteffekte wie Kerze oder Feuer flackern. Blasen und Symbole bleiben immer obenauf.
 - **Schallwellen:** Spielt ein Lautsprecher, gehen von ihm Schallwellen aus, die an den Wänden enden. Surround-Boxen, Sub und die zweite Box eines Stereopaars spielen mit, sobald ihr Raum spielt.
 - **Wettereffekte:** Regen, Schnee, Hagel, Nebel, Wolken, Gewitter, Frost, Sonnenlicht und Wind als Strömung ums Haus. Alle Effekte folgen ihrem eigenen Messwert und mischen sich – Sonnenstrahlen bei einem Schauer, je nach Bewölkung, Dunst neben Regen, der Mond in Wolkenlücken. Tagsüber ist die Umgebung heller, Sonnenstrahlen kommen und gehen, wandern mit den Wolken und enden am Haus; ab 4 °C setzt ganz zart Raureif ein, der bis 0 °C dichter wird, in Pfützen spiegeln sich ziehende Wolken, und Tropfen schlagen Wellen hinein. Durch die Fenster fällt Licht: tagsüber ein heller Schein, bei Sonne ein Lichtfleck auf dem Boden – kurz bei hoher, lang bei tiefer Sonne –, in klaren Nächten je nach Mondphase ein schwacher Mondschein; ein Rollladen verkürzt den Lichtfleck und hält das Licht geschlossen ganz draußen, das Tageslicht breitet sich weich im Raum aus und fällt durch offene Türen in den Nachbarraum. Bei Hitze flimmert die Luft an den Wänden in der Sonne. Ein Pfeil oben rechts zeigt Windrichtung und Stärke. Schalter **Wetter** über dem Plan, zwei Stärken in den Einstellungen.
 
@@ -60,7 +61,7 @@ Für Wetter, Warnungen und Sonnenstand trägst du im Editor eine **Adresse** ein
 - Antippen eines Geräts öffnet sein Menü, Antippen eines Raums seine Details.
 - Plus/Minus, zwei Finger oder Strg+Mausrad zoomen. **Ansicht zurücksetzen** zeigt wieder alles.
 - **Vollbild** zeigt den Plan bildschirmfüllend mit Wetterdetails.
-- **Namen** blendet die Gerätenamen ein und aus, **Heatmap** die Wärme.
+- **Namen** blendet die Gerätenamen ein und aus, **Heatmap** die Wärme, **Wetter** die Wettereffekte und **Effekte** Lampenschein und Schallwellen. „Effekte“ merkt sich jedes Gerät selbst und gehört zu Basic.
 
 ## Wetterwarnungen
 

@@ -186,6 +186,12 @@ def frontend() -> None:
         out["… after adjusting (10 s later)"] = (
             f"{idle['task'] / 4:.0f} ms Rechenzeit je Sekunde · Bild {idle['p50']:.0f} ms, 95 %: {idle['p95']:.0f} ms · "
             f"{idle['slow']} Ruckler in 4 s")
+        # what one frame of the effects costs in the script (since 0.28: moving averages of weather_fx.js) – all of it,
+        # the inside layer (window light, lamps, sound) and the step of the self-regulation
+        fx = page.evaluate("() => HO.weatherFx ? { all: HO.weatherFx.stats.drawMs, inside: HO.weatherFx.stats.indoorMs,"
+                           " step: HO.weatherFx.stats.step, lamps: HO.weatherFx.stats.lamps } : null")
+        out["Effects: one frame in the script"] = (
+            f"{fx['all']:.1f} ms, davon innen {fx['inside']:.1f} ms · Stufe {fx['step']} · {fx['lamps']} Lampen" if fx else "–")
 
         # Live messages: 20 state changes of a lamp. Given is the whole CPU time in this period –
         # next to it what the same period costs when idle (the difference is the messages).

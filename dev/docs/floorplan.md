@@ -4,6 +4,59 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.28 – button "Effekte", light of the lamps, free scaling of plan symbols, a pass over the frame time
+
+- **Button "Effekte"** (`data-act="fpEffects"` on the home page, `pvEffects` in the full screen, symbol `sparkle`) next to
+  "Heatmap" and "Wetter": the effects of the devices – light of the lamps and sound waves. **Basic.** Remembered per
+  browser, nothing in the plan (wish of the operator): `localStorage` `ho.fpEffects` (absent = on), read by every
+  mounted floor plan (`st.effects`, `HO.floorplan.effectsOn()`), switched by `fp.toggleEffects()`. Without weather the
+  canvas still runs while a lamp shines or a speaker plays (`INDOOR_ONLY`); off → no lamps, no speakers in `indoorNow`.
+  The window light stays with "Wetter" (Pro `floorplan_weather`).
+- **Light of the lamps (`indoorNow` → `lamps`, `drawIndoor` step 2):** every placed light that is on (`kind` light,
+  online; not docked) and every group with such members. Colours from `HO.lightColors` (white tone, colour, the points
+  of a gradient; a Home Base lamp without a light model = warm white), brightness 0.3…1 from `brightness`, `effect`
+  = running Hue effect. Shape of the source: the bubble (`r`) or the turned box of the plan symbol (`rot`, `lw`, `lh`,
+  `round`) – a wide symbol lights from its whole length.
+  - **Spread:** the same path field as the window light (`lightGrid` once per floor and doors, `spreadFrom` = Dijkstra
+    from seed cells; windows: along the glass, `lightFields`; lamps: the cells of the symbol or a small disc
+    `LAMP_SEED` in the bubble, only cells of the lamp's own room, `lampFields`, `LAMP_HALF` 1.5, `LAMP_R` 7 cells).
+    Walls stop it, open doors let it through (the thresholds get it back like the window glow). Cached per lamp place
+    and shape (`lampCache`) – switching, dimming and colours never compute anew.
+  - **Drawing:** the field tinted in the lamp's colours (`tintedLamp`; several colours = a linear gradient along the
+    symbol – a gradient runs from one end of a light bar to the other –, at a bubble across it at 100° as
+    `HO.lightGlow`), opacity `LAMP_LIGHT` × brightness × strength, a little less by day (`LAMP_DAY`); a halo at the edge
+    of bubble or symbol (`haloOf`: six strokes around the outline, drawn once per colour, shape and scale into an
+    image). Changes ease over `LAMP_EASE` (own clock `lampAt`, the first frame of an animation has no `dt`); a lamp
+    switched off fades, but not on another floor (`mask.shape`). Effects: candle/fire flicker, sparkle/glisten
+    twinkle, others breathe (`flicker`, phase from the id). Static light needs no frame: `lampsBusy()` lets the image
+    run only while something eases or an effect runs (calm pace).
+  - `stats.lamps` = lamps with a halo in the last frame.
+- **Bubble and symbol always lie on top:** besides bubbles, docked dots, group bubbles (since 0.27.4) also the status
+  dot and the marks (`markSpots`, the same places as `deviceMarks`) and **the plan symbols themselves** are punched out
+  of the inside layer last (`indoor.symbols`, `symbolShape`: rect/circle/path of `floorplan_symbols.js` as `Path2D`,
+  bodies filled, lines traced a little wider; without `Path2D` the box). Before 0.28 plan symbols stayed lit by the
+  window light. `stats.symbols`.
+- **Free scaling of plan symbols:** `devices[id].stretch` = width ÷ height against the drawing (0.25…8, 1 is not stored,
+  only with a symbol; `floorplan_store.SYMBOL_STRETCH`, additive field – a plan without it reads as before, an older
+  ComfyOS ignores it). `size` stays the height (0.5…4). `symbolBox` returns `kx`/`k` and the half sides before the
+  turn `lw`/`lh`; the symbol is drawn with `scale(kx k)`, its lines keep their width (non-scaling stroke). Editor: the
+  frame turns with the symbol – corner = size (proportion stays), middle right = width, middle bottom = height
+  (`symscale` with `data-c` e|s|se, distance along the turned axis); panel: Größe, Breite, Höhe (−/+ in 5 % steps,
+  `setSymbolSides`), "Seitenverhältnis zurücksetzen". Moving to another floor carries `stretch` along.
+- **Frame time (the operator found the floor plan slow with every effect):** measured on the Pi only by reading the
+  code – the browser numbers come from `dev/measure.py frontend` on Windows, which since 0.28 also prints what one
+  frame costs in the script (`stats.drawMs`, of it the inside layer `stats.indoorMs`, moving averages). Changed without
+  a visible difference:
+  - sound waves alone no longer drive the image at the fast pace (30 frames/s) but at `SOUND_FPS` 20 (`fpsNow`) – the
+    rings are slow since 0.27.1;
+  - `update()` reads the colour tokens (`getComputedStyle`, forces a style computation) only when style or classes of
+    the root element changed – before on every live message;
+  - all door thresholds as one clip, the light laid in once (before once per door and light source);
+  - the middle of the building once per outline instead of from all corners in every frame;
+  - the halo of a lamp as an image instead of six wide strokes per frame.
+- **Tests:** `test_stores` section 6 (`stretch`); `ui_home`: lamps count as light inside, button "Effekte" switches and
+  remembers (`ho.fpEffects`), without weather the canvas runs only for lamps or sound.
+
 ## Since 0.27.5 – every effect blends with every other, window shafts live like the rays outside
 
 - **No effect asks for the weather kind any more.** The kind (`fx.kind`) still names the weather; every effect follows
@@ -33,7 +86,8 @@ when something was added.
 - **Bubbles stay free:** the effect canvas lies above the SVG, so since 0.27 the inside layer (window light, glow, sound
   waves) veiled the device bubbles – the plan seemed to shine through the symbol. `floorplan.js` collects every device
   bubble, group bubble and docked dot while drawing (`st.bubbles`, plan units) and hands them over as
-  `indoor.bubbles`; `drawIndoor` punches them out last (`destination-out`, radius + 1.5 px). Plan symbols stay lit.
+  `indoor.bubbles`; `drawIndoor` punches them out last (`destination-out`, radius + 1.5 px). Plan symbols stay lit (until 0.28 – since
+  then they are left free too, see there).
 - **Further boxes play along:** a surround speaker, sub or second box of a stereo pair has no `playing` of its own. Its
   row names its main device (`part_of`, plugin API revision 8, resolved by `device_merge.merge` to the row id shown –
   the Home Base may lend it); `indoorNow` takes that device's `playing`, `muted` and `volume` for the box. No guessing

@@ -885,6 +885,9 @@ polyline.fp-draft { fill: none; }
 .fp-dev.off .fp-sym .l { fill: none; } .fp-dev.off .fp-sym .k { fill: #5d5b64; stroke: none; }
 .fp-dev.symbol.merge .hit { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
 .fp-mhandle[data-kind="symscale"] { cursor: nwse-resize; }
+.fp-mhandle[data-kind="symscale"][data-c="e"] { cursor: ew-resize; }
+.fp-mhandle[data-kind="symscale"][data-c="s"] { cursor: ns-resize; }
+.fp-symlabel { min-width: 52px; }
 .fp-badge.count circle { fill: var(--accent); }
 .fp-badge.count text { fill: #fff; font-weight: 700; }
 /* symbol picker of the editor */

@@ -121,6 +121,23 @@ it does not show how fast the graphics card of an old device paints. Safari also
 Chromium – the gain on the real device is likely to be larger for the gestures, but remains to be checked on the device
 (`Roadmap.md`, section 3; the diagnosis page `#diag` measures the frame rate there).
 
+### 0.28 – a pass over the frame time of the effects
+
+The operator found the floor plan slow with every effect on. The browser can only be measured on Windows
+(`dev/measure.py frontend`); this pass was made on the Pi by reading the drawing path frame by frame, and only
+changes without a visible difference were made. The measurement now prints what one frame of the effects costs in the
+script (`stats.drawMs`, of it the inside layer `stats.indoorMs`) – the next measurement on Windows fills in the numbers
+(before: `git worktree add` with `v0.27.5`, after: this state).
+
+| Change | Why it costs less |
+|---|---|
+| sound waves alone at `SOUND_FPS` 20 instead of the fast pace (30) | a playing speaker drove the whole weather image at 30 frames/s; the rings are slow – a third fewer frames while only they move |
+| colour tokens read only when the root element changed | `update()` ran `getComputedStyle` (a forced style computation) with every live message and every redraw of the plan |
+| all door thresholds in one clip | the light of every window (and lamp) was laid in once per door |
+| middle of the building once per outline | before from all corners of all rooms in every frame |
+| halo of a lamp as a ready image | six wide strokes per lamp and frame while rain or wind animate |
+| light of a lamp needs no frame | static lamp light is a still image; frames only while a change eases or a light effect runs (calm pace) |
+
 ## Helper program of the Matter plugin (0.21)
 
 Measured on 19.11.2026 on the development Pi (Raspberry Pi 5, 8 GB) with Node 24.22.3 and the bundled

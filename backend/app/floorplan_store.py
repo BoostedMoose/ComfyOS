@@ -6,8 +6,9 @@ floorplan.json:
     "rooms":    [ {"id", "name", "room_id", "x", "y"} ],
     "openings": [ {"id", "type": "door"|"window"|"passage"|"radiator", "a": [x, y], "b": [x, y], "side": 1|-1, "device_id",
                     "extra_ids": [device_id, …]} ],   # device_id = first docked device, extra_ids = further ones (optional)
-    "devices":  { "<device_id>": {"x", "y", "furniture", "size", "rot"} },   # furniture = plan symbol instead of the
-                                                                             # standard bubble, with its size and turn
+    "devices":  { "<device_id>": {"x", "y", "furniture", "size", "rot", "stretch"} },   # furniture = plan symbol
+                # instead of the standard bubble, with its size and turn; stretch (since 0.28) = its width ÷ its height
+                # against the drawn proportion (1 is not stored)
     "groups":   [ {"id", "name", "x", "y", "members": [device_id, …]} ],   # device groups (one circle for several devices)
     "home_name": "Wohnung",
     "shadow": true, "north": 0,    # shadow by the position of the sun; north = direction of north in degrees, clockwise from "up"
@@ -64,6 +65,7 @@ GROUND_ID = "ground"        # id of the floor at the top level if the plan names
 CONTENT_KEYS = ("walls", "rooms", "openings", "devices", "groups", "decks", "stairs")   # what every floor holds of its own
 SYMBOL_SIZE = (0.5, 4)      # size of a plan symbol (1 = standard), the same limits as in floorplan.js
 SYMBOL_TURN = 45            # a plan symbol is turned in steps of 45 degrees
+SYMBOL_STRETCH = (0.25, 8)  # width of a plan symbol against its height (1 = as drawn), the same limits as in floorplan.js
 
 
 def _read(path, default):
@@ -215,6 +217,9 @@ def _content(raw: dict[str, Any], width, height, taken: set[str], room_ids: set[
                 rot = int(_num(pos.get("rot"), 0, 359, 0)) // SYMBOL_TURN * SYMBOL_TURN
                 if rot:
                     entry["rot"] = rot
+                stretch = _num(pos.get("stretch"), SYMBOL_STRETCH[0], SYMBOL_STRETCH[1], 1)   # free scaling (0.28)
+                if stretch != 1:
+                    entry["stretch"] = stretch
             devices[str(did)[:160]] = entry
     groups, grouped = [], set()
     for g in (raw.get("groups") or [])[:MAX_GROUPS]:

@@ -10,6 +10,7 @@ existing installations: there are no conversion routines, so a format must never
     4  an unreadable file is kept as a copy before it is overwritten
     5  floor plan with several floors (since 0.25): a plan from before stays one floor, a device stands on one floor
        only, ids and levels are unambiguous, decks are closed, stairs have a foot, a head and a limited width
+    6  free scaling of a plan symbol (since 0.28): `stretch` only with a symbol, limited, 1 is not stored
 
     python tests/core/test_stores.py [path-to-comfyos]
     python tests/core/test_stores.py [path-to-comfyos] --write   # regenerate the sample files – only after a
@@ -377,6 +378,23 @@ if len(fps.clean({"floors": [{"level": n + 1} for n in range(30)]})["floors"]) !
     problems.append("the number of floors is not limited")
 settle()
 print("5 several floors: an old plan is one floor, a device stands on one floor only, ids and levels unambiguous, decks closed")
+
+# 6) Free scaling of a plan symbol (since 0.28): `stretch` = width against height, additive – kept only with a symbol,
+#    limited, the drawn proportion (1) is not stored; a plan without it reads as before
+placed = fps.clean({"devices": {"dev:a": {"x": 2, "y": 2, "furniture": "light-bar", "size": 0.6, "stretch": 4.567},
+                                "dev:b": {"x": 3, "y": 3, "furniture": "sofa", "stretch": 99},
+                                "dev:c": {"x": 4, "y": 4, "furniture": "tv", "stretch": 1},
+                                "dev:d": {"x": 5, "y": 5, "stretch": 3},
+                                "dev:e": {"x": 6, "y": 6, "furniture": "tv", "stretch": "breit"}}})["devices"]
+expected = {"dev:a": {"x": 2.0, "y": 2.0, "furniture": "light-bar", "size": 0.6, "stretch": 4.57},
+            "dev:b": {"x": 3.0, "y": 3.0, "furniture": "sofa", "stretch": fps.SYMBOL_STRETCH[1]},
+            "dev:c": {"x": 4.0, "y": 4.0, "furniture": "tv"}, "dev:d": {"x": 5.0, "y": 5.0}, "dev:e": {"x": 6.0, "y": 6.0, "furniture": "tv"}}
+if placed != expected:
+    problems.append(f"stretch of a plan symbol: kept only with a symbol, limited, 1 not stored: {placed}")
+if fps.clean({"devices": placed})["devices"] != placed:
+    problems.append("cleaning a stretched symbol twice does not give the same")
+settle()
+print("6 free scaling: stretch only with a plan symbol, limited, the drawn proportion is not stored")
 
 if found:
     sys.exit(f"{len(found)} Befunde")

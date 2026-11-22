@@ -103,7 +103,7 @@ PIXELS_JS = """() => {
   const s = HO.weatherFx.stats, wind = document.querySelector('#fpHost .fp-wind:not(.hidden)')
   return { inside, drawn, frames: s.frames, wisps: s.wisps, cells: s.cells, solid: s.solid, leaves: s.leaves, puddles: s.puddles,
     ripples: s.ripples, rays: s.rays, blocked: s.blocked, frost: s.frost, windows: s.windows, beams: s.beams, moon: s.moon,
-    sound: s.sound, haze: s.haze, wind: wind ? wind.getAttribute('title') : null }
+    sound: s.sound, haze: s.haze, lamps: s.lamps, symbols: s.symbols, wind: wind ? wind.getAttribute('title') : null }
 }"""
 # previews with wind from 15 km/h and without snow: leaves drift there; previews with rain: puddles and ripples
 LEAFY = {"partly", "rain", "breeze", "storm", "thunder", "hail"}
@@ -229,9 +229,10 @@ def run(p, engine, name, reduced=False, **ctx_args):
                 problems.append(f"{name}: {kind}/{tm}: kein Canvas")
                 continue
             # The weather never gets inside. Since 0.27 light and sound do: by day the sky light at every window, a
-            # patch of sunlight on a sunny day and of moonlight in a clear night, the waves of a speaker that plays. If
-            # none of that is there (a night without a moon, nothing plays), the rooms stay untouched.
-            if px["inside"] and not (px["windows"] or px["sound"]):
+            # patch of sunlight on a sunny day and of moonlight in a clear night, the waves of a speaker that plays, since
+            # 0.28 the light of a lamp that is on. If none of that is there (a night without a moon, nothing plays, every
+            # lamp off), the rooms stay untouched.
+            if px["inside"] and not (px["windows"] or px["sound"] or px["lamps"]):
                 problems.append(f"{name}: {kind}/{tm}: Effekte im Inneren eines Raums (Alpha-Summe {px['inside']})")
             if tm == "day" and not px["windows"]:
                 problems.append(f"{name}: {kind}/{tm}: by day no window lets light in")
@@ -282,6 +283,8 @@ def run(p, engine, name, reduced=False, **ctx_args):
     if not reduced and not frames:
         problems.append(f"{name}: keine Animation")
     # switching off in the floor plan settings: no canvas any more
+    # the effects of the devices (lamps, sound) keep the canvas without weather – switched off here, checked further down
+    page.evaluate("() => localStorage.setItem('ho.fpEffects', '0')")
     page.evaluate("""async () => { const p = Object.assign({}, HO.state.overview.floorplan, {fx: false})
       HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}); HO.state.fxPreview = null; HO.go('home', true) }""")
     page.wait_for_selector("#fpHost .fp-wrap svg .fp-room")
@@ -302,6 +305,23 @@ def run(p, engine, name, reduced=False, **ctx_args):
         page.wait_for_timeout(700)
         if page.locator("#fpHost canvas.fp-fx").count() or page.evaluate("async () => (await HO.api('floorplan')).fx") is not False:
             problems.append(f"{name}: the button „Wetter“ does not switch off")
+    # button "Effekte" (since 0.28): lamp light and sound waves, remembered per browser – without weather the canvas
+    # runs for them alone, and only while a lamp shines or a speaker plays
+    fxb = page.locator('[data-act="fpEffects"]')
+    if fxb.count() != 1 or fxb.get_attribute("aria-pressed") != "false":
+        problems.append(f"{name}: the button „Effekte“ is missing or shows the wrong state")
+    else:
+        fxb.click()
+        page.wait_for_timeout(700)
+        state = page.evaluate("""() => ({ pref: localStorage.getItem('ho.fpEffects'), canvas: !!document.querySelector('#fpHost canvas.fp-fx'),
+          lamps: HO.weatherFx.stats.lamps, sound: HO.weatherFx.stats.sound })""")
+        if fxb.get_attribute("aria-pressed") != "true" or state["pref"] != "1" or (state["canvas"] and not (state["lamps"] or state["sound"])):
+            problems.append(f"{name}: the button „Effekte“ does not switch on: {state}")
+        fxb.click()
+        page.wait_for_timeout(700)
+        if page.locator("#fpHost canvas.fp-fx").count() or page.evaluate("() => localStorage.getItem('ho.fpEffects')") != "0":
+            problems.append(f"{name}: the button „Effekte“ does not switch off")
+    page.evaluate("() => localStorage.removeItem('ho.fpEffects')")
     page.evaluate("""async () => { const p = Object.assign({}, HO.state.overview.floorplan, {fx: true})
       HO.state.overview.floorplan = await HO.api('floorplan', {method: 'PUT', body: p}) }""")
     # full screen: title, weather and warning are pills of equal height; opened, wind and hours are below

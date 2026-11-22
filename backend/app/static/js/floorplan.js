@@ -25,12 +25,14 @@
   const GROUP_SCALE = 1.3, DOT = 0.36, MARK = 0.44, COUNT_MARK = 0.56
   const MAX_DOCKED = 4   // devices at one window, door or radiator (floorplan_store.MAX_DOCKED)
   const SYMBOL_CELLS = 2, SYMBOL_MIN = 0.5, SYMBOL_MAX = 4, SYMBOL_STEP = 0.1, SYMBOL_TURN = 45, SYMBOL_MIN_PX = 26
+  const STRETCH_MIN = 0.25, STRETCH_MAX = 8   // width of a symbol against its height (floorplan_store.SYMBOL_STRETCH)
   // Several floors: what every floor holds of its own (floorplan_store.CONTENT_KEYS) and how many a plan can have
   const CONTENT = ['walls', 'rooms', 'openings', 'devices', 'groups', 'decks', 'stairs'], MAX_FLOORS = 8, GROUND_ID = 'ground'
   const STAIR_MIN = 0.5, STAIR_MAX = 6, STAIR_WIDTH = 2   // width of a staircase in cells (floorplan_store.STAIR_WIDTH)
   // Editor preferences in the browser (like the grid): the neighbouring floor shines through, points snap to its walls
   const readPref = (key, fallback) => { try { const v = localStorage.getItem(key); return v == null ? fallback : v !== '0' } catch (e) { return fallback } }
   const writePref = (key, on) => { try { localStorage.setItem(key, on ? '1' : '0') } catch (e) { } }
+  const EFFECTS_PREF = 'ho.fpEffects'   // button "Effekte": lamp light and sound waves on or off, per browser (since 0.28)
   let ghostOn = readPref('ho.fpGhost', true), floorSnap = readPref('ho.fpFloorSnap', true)
 
   /* ---------- Geometrie */
@@ -334,15 +336,20 @@
   }
 
   /* ---------- Device symbols */
-  // The plan symbol of a stored device (`furniture` = key, `size`, `rot` in degrees) – or null for the standard bubble.
-  // k = cells per symbol unit; hw/hh = half width and height of the box the turned symbol covers, in cells (u = one pixel).
+  // The plan symbol of a stored device (`furniture` = key, `size`, `rot` in degrees, `stretch`) – or null for the
+  // standard bubble. Since 0.28 a symbol scales freely: `size` is its height, `stretch` its width against the drawn
+  // proportion (a long light bar). k/kx = cells per symbol unit along its height and width; lw/lh = its own half width
+  // and height before the turn; hw/hh = half width and height of the box the turned symbol covers, in cells (u = one
+  // pixel). The lines keep their width at every scale (non-scaling stroke in app.css).
   function symbolBox(entry, u) {
     const sym = entry && entry.furniture && HO.planSymbols[entry.furniture]
     if (!sym) return null
     const size = clamp(Number(entry.size) || 1, SYMBOL_MIN, SYMBOL_MAX), rot = (((Number(entry.rot) || 0) % 360) + 360) % 360
-    const k = Math.max(SYMBOL_CELLS * size, SYMBOL_MIN_PX * u) / 48
-    const a = rot * Math.PI / 180, w = sym.w * k / 2, h = sym.h * k / 2
-    return { sym, size, rot, k, hw: Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)), hh: Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)) }
+    const stretch = clamp(Number(entry.stretch) || 1, STRETCH_MIN, STRETCH_MAX)
+    const k = Math.max(SYMBOL_CELLS * size, SYMBOL_MIN_PX * u) / 48, kx = k * stretch
+    const a = rot * Math.PI / 180, w = sym.w * kx / 2, h = sym.h * k / 2
+    return { sym, size, rot, stretch, k, kx, lw: w, lh: h,
+      hw: Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)), hh: Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)) }
   }
   // One mark at a device (centre x/y, radius b): 'battery', 'lock', 'offline', 'error' (extra = 'alarm' lets it blink)
   // or 'count' (extra = the number of devices in a group).
@@ -362,6 +369,14 @@
     return (d.locked ? markSVG('lock', -cx, -cy, b) : '') +
       (HO.lowBattery(d) ? markSVG('battery', dot ? -cx : cx, dot ? cy : -cy, b) : '') +
       (!d.online ? markSVG('offline', cx, cy, b) : fault ? markSVG('error', cx, cy, b, d.alarm ? 'alarm' : '') : '')
+  }
+  // Where deviceMarks puts its marks – {x, y, r} relative to the device, for the effects that must leave them free.
+  function markSpots(d, cx, cy, b, dot) {
+    const out = []
+    if (d.locked) out.push({ x: -cx, y: -cy, r: b })
+    if (HO.lowBattery(d)) out.push({ x: dot ? -cx : cx, y: dot ? cy : -cy, r: b })
+    if (!d.online || d.alarm || (d.errors && d.errors.length)) out.push({ x: cx, y: cy, r: b })
+    return out
   }
 
   /* Position of the sun (simplified NOAA formulas, accurate to ~1°): az = azimuth from north clockwise, el = elevation.
@@ -431,6 +446,8 @@
 
   HO.floorplan = {
     computeFaces, assign, heatScale, floorsOf,
+    // Are the effects of the devices (lamp light, sound waves – button "Effekte") switched on in this browser?
+    effectsOn: () => readPref(EFFECTS_PREF, true),
     // Is anything drawn on any floor of this stored plan?
     hasWalls: plan => floorsOf(plan).some(f => (f.walls || []).length > 0),
     // The device groups and the rooms of all floors of a stored plan.
@@ -448,7 +465,8 @@
         heat: opts.heat != null ? !!opts.heat : !!(opts.plan && opts.plan.heatmap), hm: { key: null, url: null },
         heatRange: opts.heatRange || null,
         hl: null, tap: null, focus: null,
-        wx: opts.weather || null, fxView: null   // Wettereffekte: fx aus /api/weather (Startseite), Canvas-Ansicht
+        wx: opts.weather || null, fxView: null,  // weather effects: fx from /api/weather (home page), canvas view
+        effects: readPref(EFFECTS_PREF, true)    // effects of the devices – lamp light, sound waves (since 0.28)
       }
       // Full screen: infinite surface, centre cx/cy in plan units, s = pixels per unit. The view on the
       // home page keeps st.zoom (multiple of the overall view) and st.zc (centre) instead. `look()` and `aim()`
@@ -595,7 +613,7 @@
         const target = levels().find(f => f.id === floorId), here = st.plan.floor, pos = posOf(id)
         if (!target || target === here || !pos) return
         const entry = { x: pos.x, y: pos.y }, stored = here.devices[id] || {}
-        for (const key of ['furniture', 'size', 'rot']) if (stored[key] != null) entry[key] = stored[key]
+        for (const key of ['furniture', 'size', 'rot', 'stretch']) if (stored[key] != null) entry[key] = stored[key]
         for (const f of levels()) removeFrom(f, id)
         target.devices[id] = entry
         st.sel = null
@@ -775,10 +793,20 @@
         st.plan.groups = st.plan.groups.filter(x => x !== g)
         st.sel = null
       }
-      // Size of a plan symbol (1 = standard, in steps of 5 %); the standard size is not stored.
+      // Size of a plan symbol (1 = standard, in steps of 5 %); the standard size is not stored. The proportion stays.
       function setSymbolSize(entry, size) {
         const v = clamp(Math.round(size * 20) / 20, SYMBOL_MIN, SYMBOL_MAX)
         if (v === 1) delete entry.size; else entry.size = v
+      }
+      // Width and height of a plan symbol on their own (since 0.28, 1 = as drawn at standard size, steps of 5 %): the
+      // height is `size`, the width is `size × stretch`. null keeps that side as it is.
+      function setSymbolSides(entry, width, height) {
+        const size = clamp(Number(entry.size) || 1, SYMBOL_MIN, SYMBOL_MAX), was = size * clamp(Number(entry.stretch) || 1, STRETCH_MIN, STRETCH_MAX)
+        if (height != null) setSymbolSize(entry, height)
+        const h = clamp(Number(entry.size) || 1, SYMBOL_MIN, SYMBOL_MAX)
+        const w = width != null ? Math.round(width * 20) / 20 : was
+        const v = clamp(Math.round(w / h * 100) / 100, STRETCH_MIN, STRETCH_MAX)   // two places, as floorplan_store keeps it
+        if (v === 1) delete entry.stretch; else entry.stretch = v
       }
       // Collective state of a group: the most conspicuous wins (motion, heating, on, open)
       const groupClass = ms => {
@@ -1473,7 +1501,9 @@
         const nameSVG = (name, below) => st.plan.show_names ? `<text class="fp-device-name" x="0" y="${r3(below + nfs * 1.15)}" font-size="${nfs}" stroke-width="${nfs * 0.28}" text-anchor="middle">${HO.esc(name)}</text>` : ''
         st.dockPos = dockLayout(db, R, u)
         const mg = st.drag && st.drag.merge, shadows = []
-        st.bubbles = []   // bubbles and dots the inside effects must leave free (indoorNow)
+        st.bubbles = []   // bubbles, dots and marks the inside effects must leave free (indoorNow)
+        st.symbols = []   // plan symbols likewise (since 0.28: bubble and symbol always lie on top)
+        const freeMarks = (list, x, y) => { for (const m of list) st.bubbles.push({ x: x + m.x, y: y + m.y, r: m.r }) }
         for (const [id, stored] of Object.entries(st.plan.devices)) {
           const d = db[id]
           if (!d) continue
@@ -1493,9 +1523,12 @@
             const cx = box.sym.round ? box.hw * 0.71 : box.hw, cy = box.sym.round ? box.hh * 0.71 : box.hh
             const hx = Math.max(box.hw, R * 0.8), hy = Math.max(box.hh, R * 0.8)
             shadows.push({ p: [stored.x, stored.y], r: (box.hw + box.hh) * 0.45 })
+            st.symbols.push({ x: stored.x, y: stored.y, key: stored.furniture, rot: box.rot, kx: box.kx, ky: box.k })
+            st.bubbles.push({ x: stored.x + cx, y: stored.y - cy, r: R * DOT })
+            freeMarks(markSpots(d, cx, cy, mark, true), stored.x, stored.y)
             s += `<g class="fp-dev symbol ${HO.devClass(d)} ${sel} ${merge}" data-kind="dev" data-id="${HO.esc(id)}" transform="translate(${stored.x} ${stored.y})">
             <rect class="hit" x="${r3(-hx)}" y="${r3(-hy)}" width="${r3(2 * hx)}" height="${r3(2 * hy)}" rx="${r3(R * 0.3)}"/>
-            <g class="fp-sym" transform="rotate(${box.rot}) scale(${box.k.toFixed(5)}) translate(-24 -24)">${box.sym.svg}</g>
+            <g class="fp-sym" transform="rotate(${box.rot}) scale(${box.kx.toFixed(5)} ${box.k.toFixed(5)}) translate(-24 -24)">${box.sym.svg}</g>
             <circle class="fp-dot" cx="${r3(cx)}" cy="${r3(-cy)}" r="${r3(R * DOT)}"/>
             ${deviceMarks(d, cx, cy, mark, true)}${nameSVG(d.name, box.hh)}
           </g>`
@@ -1503,6 +1536,7 @@
             const gs = R * 1.22   // edge of the glyph (24 units)
             shadows.push({ p: [stored.x, stored.y], r: R })
             st.bubbles.push({ x: stored.x, y: stored.y, r: R })
+            freeMarks(markSpots(d, R * 0.78, R * 0.78, mark, false), stored.x, stored.y)
             s += `<g class="fp-dev ${HO.devClass(d)} ${sel} ${merge}" data-kind="dev" data-id="${HO.esc(id)}" transform="translate(${stored.x} ${stored.y})">
             <circle class="bg" r="${R}"/><g class="glyph" transform="translate(${-gs / 2} ${-gs / 2}) scale(${gs / 24})">${HO.iconPaths[d.kind] || HO.iconPaths.device}</g>
             ${deviceMarks(d, R * 0.78, R * 0.78, mark, false)}${nameSVG(d.name, R)}
@@ -1533,7 +1567,9 @@
           const hasErr = ms.some(d => d.alarm || (d.errors && d.errors.length)), hasOffline = ms.some(d => !d.online), low = ms.some(HO.lowBattery)
           const edge = r0 * 0.78
           shadows.push({ p: [g.x, g.y], r: r0 })
-          st.bubbles.push({ x: g.x, y: g.y, r: r0 })
+          st.bubbles.push({ x: g.x, y: g.y, r: r0 }, { x: g.x + r0 * 0.8, y: g.y - r0 * 0.8, r: R * COUNT_MARK })
+          if (hasErr || hasOffline || low) st.bubbles.push({ x: g.x + edge, y: g.y + edge, r: mark })
+          if (hasErr && hasOffline) st.bubbles.push({ x: g.x - edge, y: g.y + edge, r: mark })
           s += `<g class="fp-dev fp-group ${groupClass(ms)} ${sel ? 'sel' : ''} ${mg && mg.type === 'group' && mg.id === g.id ? 'merge' : ''}" data-kind="group" data-id="${HO.esc(g.id)}" transform="translate(${g.x} ${g.y})">
             <circle class="bg" r="${r0}"/>${mini}
             ${markSVG('count', r0 * 0.8, -r0 * 0.8, R * COUNT_MARK, n)}
@@ -1571,13 +1607,15 @@
         } else if (it && st.sel.type === 'open') {
           for (const e of ['a', 'b']) s += `<circle class="fp-handle" data-kind="oend" data-end="${e}" cx="${it[e][0]}" cy="${it[e][1]}" r="${8 * u}"/>`
         }
-        // selected plan symbol: frame with one handle at the corner – dragging it changes the size of the symbol
+        // selected plan symbol: a frame turned with the symbol – the corner changes its size (the proportion stays), the
+        // middle of the right side its width, the middle of the bottom side its height (since 0.28: free scaling)
         if (st.editing && st.sel && st.sel.type === 'dev' && !st.msel.length && db[st.sel.id] && !dockedTo(st.sel.id)) {
           const e = st.plan.devices[st.sel.id], box = symbolBox(e, u)
           if (box) {
-            const pad = 5 * u, hs = (COARSE ? 18 : 10) * u, x1 = e.x + box.hw + pad, y1 = e.y + box.hh + pad
-            s += `<rect class="fp-mbox" x="${r3(e.x - box.hw - pad)}" y="${r3(e.y - box.hh - pad)}" width="${r3(2 * (box.hw + pad))}" height="${r3(2 * (box.hh + pad))}" rx="${4 * u}"/>
-              <rect class="fp-mhandle corner" data-kind="symscale" x="${r3(x1 - hs / 2)}" y="${r3(y1 - hs / 2)}" width="${hs}" height="${hs}" rx="${3 * u}"/>`
+            const pad = 5 * u, hs = (COARSE ? 18 : 10) * u, x1 = box.lw + pad, y1 = box.lh + pad
+            const grip = (c, x, y, round) => `<rect class="fp-mhandle ${c === 'se' ? 'corner' : 'side ' + c}" data-kind="symscale" data-c="${c}" x="${r3(x - hs / 2)}" y="${r3(y - hs / 2)}" width="${hs}" height="${hs}" rx="${round ? hs / 2 : 3 * u}"/>`
+            s += `<g transform="translate(${e.x} ${e.y}) rotate(${box.rot})"><rect class="fp-mbox" x="${r3(-x1)}" y="${r3(-y1)}" width="${r3(2 * x1)}" height="${r3(2 * y1)}" rx="${4 * u}"/>
+              ${grip('e', x1, 0, true)}${grip('s', 0, y1, true)}${grip('se', x1, y1, false)}</g>`
           }
         }
         // Mehrfachauswahl: Rahmen mit Griffen (Ecken + Seitenmitten)
@@ -1660,13 +1698,19 @@
          level = volume 0…1. A muted speaker sends no waves; a floor below the ground has no window light. A further part
          (surround speaker, sub, second box of a stereo pair) has no capability `playing` of its own: its row names its
          main device (`part_of`, plugin API revision 8) – it plays exactly when that one plays, with its volume and mute. `bubbles` = device bubbles, group
-         bubbles and docked dots (x, y, r) – the inside layer leaves them free, the canvas lies above the SVG. light =
-         false: only the speakers (Basic, effects switched off) – windows and doors stay empty. */
+         bubbles, docked dots and marks (x, y, r), `symbols` = plan symbols (x, y, key, rot, kx, ky) – the inside layer
+         leaves both free, the canvas lies above the SVG (since 0.28 symbols too: bubble and symbol always lie on top).
+         `lamps` (since 0.28) = every placed light that is on, or a group with such members – x, y, room, shape of the
+         source (bubble: r; plan symbol: rot, lw, lh, round), colours = what the lamp shines right now (HO.lightColors:
+         white tone, colour or the points of a gradient), level = brightness 0…1, effect = running light effect or null,
+         glow = how its light spreads (lampFields, like the window light: walls stop it, open doors let it through).
+         light = false: no window light (Basic, weather effects switched off); the button "Effekte" (st.effects) switches
+         lamps and speakers. */
       function indoorNow(light) {
         const fs = faces(), db = devById(), u = 1 / st.ppu, R = clamp(st.ppu * 0.6, 8, 15) * u
         const roomOf = p => fs.findIndex(f => inside(f.poly, p))
-        const windows = [], doors = [], speakers = [], lit = light && !underground()
-        for (const o of lit ? st.plan.openings : []) {
+        const windows = [], doors = [], speakers = [], lamps = [], lit = light && !underground(), own = st.effects
+        for (const o of lit || own ? st.plan.openings : []) {
           if (o.type !== 'door' && o.type !== 'passage') continue
           const L = dist(o.a, o.b), m = midOf(o.a, o.b)
           if (L < 0.2) continue
@@ -1689,41 +1733,65 @@
           const fields = lightFields(windows, doors, fs.map(f => f.poly))
           windows.forEach((w, i) => { w.glow = fields[i] })
         }
+        // lamps: what they shine right now – a Home Base lamp without a light model counts as warm white, full brightness
+        const shine = d => d && d.kind === 'light' && d.on && d.online ? HO.lightColors(d) : []
+        const level = d => clamp(0.3 + 0.7 * (d.brightness == null ? 100 : clamp(+d.brightness || 0, 1, 100)) / 100, 0.3, 1)
+        const effectOf = d => { const e = d.light && d.light.effect; return e && e !== 'no_effect' ? String(e) : null }
+        for (const [id, pos] of Object.entries(own ? st.plan.devices : {})) {
+          const d = db[id], colors = shine(d)
+          if (!colors.length || dockedTo(id)) continue
+          const room = roomOf([pos.x, pos.y]), box = symbolBox(pos, u)
+          if (room < 0) continue
+          const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round } : { r: R }
+          lamps.push({ id, x: pos.x, y: pos.y, room, shape, colors, level: level(d), effect: effectOf(d) })
+        }
+        for (const g of own ? st.plan.groups : []) {
+          const members = g.members.map(id => db[id]).filter(d => shine(d).length), room = roomOf([g.x, g.y])
+          if (!members.length || room < 0) continue
+          const colors = [].concat.apply([], members.map(shine)).slice(0, 8)
+          lamps.push({ id: 'group:' + g.id, x: g.x, y: g.y, room, shape: { r: R * GROUP_SCALE }, colors,
+            level: Math.max.apply(null, members.map(level)), effect: members.map(effectOf).filter(Boolean)[0] || null })
+        }
+        if (lamps.length) {
+          const fields = lampFields(lamps, doors, fs.map(f => f.poly))
+          lamps.forEach((l, i) => { l.glow = fields[i] })
+        }
         // a further part (surround speaker, sub, second box of a stereo pair) sounds with its main device: its state counts
         const sound = d => d && !HO.caps.has(d, 'playing') && d.part_of && db[d.part_of] ? db[d.part_of] : d
         const plays = d => { const m = sound(d); return !!m && !!d.online && m.online && HO.caps.has(m, 'playing') && !!m.playing && !m.muted && (m.volume == null || m.volume > 0) }
         const loud = d => { const m = sound(d); return m.volume == null ? 0.5 : clamp(m.volume / 60, 0.2, 1) }
-        for (const [id, pos] of Object.entries(st.plan.devices)) {
+        for (const [id, pos] of Object.entries(own ? st.plan.devices : {})) {
           const d = db[id]
           if (!plays(d) || dockedTo(id)) continue
           const room = roomOf([pos.x, pos.y]), box = symbolBox(pos, u)
           if (room >= 0) speakers.push({ x: pos.x, y: pos.y, r: box ? Math.max(box.hw, box.hh) : R, room, level: loud(d) })
         }
-        for (const g of st.plan.groups) {
+        for (const g of own ? st.plan.groups : []) {
           const playing = g.members.map(id => db[id]).filter(plays), room = roomOf([g.x, g.y])
           if (playing.length && room >= 0) speakers.push({ x: g.x, y: g.y, r: R * GROUP_SCALE, room, level: Math.max.apply(null, playing.map(loud)) })
         }
-        return { windows, doors, speakers, bubbles: st.bubbles || [] }
+        return { windows, doors, speakers, lamps, bubbles: st.bubbles || [], symbols: st.symbols || [] }
       }
       const LIGHT_HALF = 3.2, LIGHT_R = 13     // grid cells: half-value distance of the light and where it ends
-      let lightCache = { key: '', list: [] }
-      /* How the light of every window spreads through the home (since 0.27.1) – the way the heat map spreads warmth: on a
-         coarse grid the path from the window through the rooms is measured (Dijkstra, 8 neighbours, no diagonal through
-         wall corners); walls stop the light, the doors handed over let it through, so a bright room lights the next one
-         through its open door. Per window a small image comes out whose opacity falls off with the path – half of it
-         is left after LIGHT_HALF cells, a long soft tail runs out at LIGHT_R –, with its place in plan units:
-         {img, x, y, w, h} (null if the window lights nothing). The cells under a wall are blocked for the path, but
-         they get the light of their own side afterwards (the room their centre lies in): otherwise a dark cushion
-         would stand between the light and every wall. The effects draw every image as
-         bright as its window is right now (sky, sun, shutter) – so only the plan and the doors decide about a new
-         computation, never the weather or the time. */
-      function lightFields(windows, doors, polys) {
+      const LAMP_HALF = 1.5, LAMP_R = 7, LAMP_SEED = 0.3   // lamps (since 0.28): shorter reach; a bubble lights from a small disc
+      let lightCache = { key: '', list: [] }, gridCache = { key: '', grid: null, rev: 0 }, lampCache = new Map()
+      /* How light spreads through the home (windows since 0.27.1, lamps since 0.28) – the way the heat map spreads
+         warmth: on a coarse grid the path from the source through the rooms is measured (Dijkstra, 8 neighbours, no
+         diagonal through wall corners); walls stop the light, the doors handed over let it through, so a bright room
+         lights the next one through its open door. Per source a small image comes out whose opacity falls off with the
+         path – half of it is left after `half` cells, a long soft tail runs out at `reach` –, with its place in plan
+         units: {img, x, y, w, h} (null if the source lights nothing). The cells under a wall are blocked for the path,
+         but they get the light of their own side afterwards (the room their centre lies in): otherwise a dark cushion
+         would stand between the light and every wall. The effects draw every image as bright and in the colour its
+         source has right now (sky, sun, shutter; the light of a lamp) – so only the plan, the doors and the place of the
+         source decide about a new computation, never the weather, the time or the state of a lamp. */
+      // The grid of one floor with its doors: which cells block the light, which room every cell lies in (-1 = outside).
+      function lightGrid(doors, polys) {
         const { width: W, height: H } = st.plan
-        const key = JSON.stringify([W, H, st.floorId, st.plan.walls, windows.map(w => [w.a, w.b, w.n]), doors.map(d => [d.a, d.b])])
-        if (lightCache.key === key) return lightCache.list
+        const key = JSON.stringify([W, H, st.floorId, st.plan.walls, doors.map(d => [d.a, d.b])])
+        if (gridCache.key === key) return gridCache.grid
         const cs = Math.max(0.2, W / 150), gw = Math.ceil(W / cs), gh = Math.ceil(H / cs), N = gw * gh, mid = i => (i + 0.5) * cs
         // 1) blocking: outside the rooms, walls; open doors again
-        // room = index of the room a cell lies in (-1 = outside)
         const blocked = new Uint8Array(N), room = new Int16Array(N)
         for (let y = 0; y < gh; y++) {
           for (let x = 0; x < gw; x++) {
@@ -1740,95 +1808,141 @@
         }
         for (const w of st.plan.walls) { const f = flatten(w); for (let i = 0; i < f.length - 1; i++) stamp(f[i], f[i + 1], cs * 0.8, 1) }
         for (const d of doors) stamp(d.a, d.b, cs * 1.3, 0)
-        // 2) per window: path distance from the inner side of the glass
-        const dd = new Float64Array(N), lit = new Float64Array(N), off = Math.max(0.3, cs * 1.4)
-        const list = windows.map(w => {
-          dd.fill(Infinity)
-          const heap = [], n = Math.max(2, Math.ceil(dist(w.a, w.b) / cs))
-          const push = (d, i) => { heap.push([d, i]); let c = heap.length - 1; while (c > 0) { const pa = (c - 1) >> 1; if (heap[pa][0] <= heap[c][0]) break; [heap[pa], heap[c]] = [heap[c], heap[pa]]; c = pa } }
-          // take the nearest cell off the heap
-          const pop = () => {
-            const top = heap[0], last = heap.pop()
-            if (!heap.length) return top
-            heap[0] = last
-            for (let c = 0; ;) {
-              const l = 2 * c + 1, r = l + 1
-              let m = c
-              if (l < heap.length && heap[l][0] < heap[m][0]) m = l
-              if (r < heap.length && heap[r][0] < heap[m][0]) m = r
-              if (m === c) break
-              [heap[m], heap[c]] = [heap[c], heap[m]]; c = m
-            }
-            return top
+        const grid = { rev: gridCache.rev + 1, cs, gw, gh, N, blocked, room, dd: new Float64Array(N), lit: new Float64Array(N) }
+        gridCache = { key, grid, rev: grid.rev }
+        return grid
+      }
+      // 2) The path distance from the seed cells (distance 0) through the grid, and 3) the image of what it reaches.
+      function spreadFrom(grid, seeds, half, reach) {
+        const { cs, gw, gh, N, blocked, room, dd, lit } = grid
+        dd.fill(Infinity)
+        const heap = []
+        const push = (d, i) => { heap.push([d, i]); let c = heap.length - 1; while (c > 0) { const pa = (c - 1) >> 1; if (heap[pa][0] <= heap[c][0]) break; [heap[pa], heap[c]] = [heap[c], heap[pa]]; c = pa } }
+        // take the nearest cell off the heap
+        const pop = () => {
+          const top = heap[0], last = heap.pop()
+          if (!heap.length) return top
+          heap[0] = last
+          for (let c = 0; ;) {
+            const l = 2 * c + 1, r = l + 1
+            let m = c
+            if (l < heap.length && heap[l][0] < heap[m][0]) m = l
+            if (r < heap.length && heap[r][0] < heap[m][0]) m = r
+            if (m === c) break
+            [heap[m], heap[c]] = [heap[c], heap[m]]; c = m
           }
+          return top
+        }
+        for (const i0 of seeds) if (dd[i0] !== 0) { dd[i0] = 0; push(0, i0) }
+        while (heap.length) {
+          const [d, i] = pop()
+          if (d > dd[i] || d > reach) continue
+          const x = i % gw, y = (i / gw) | 0
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue
+            const nx = x + dx, ny = y + dy
+            if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue
+            const j = ny * gw + nx
+            if (blocked[j] || (dx && dy && (blocked[y * gw + nx] || blocked[ny * gw + x]))) continue
+            const nd = d + (dx && dy ? 1.4142 : 1) * cs
+            if (nd < dd[j]) { dd[j] = nd; push(nd, j) }
+          }
+        }
+        // under the walls: the nearest open cell of the same room, two cells around at most
+        lit.set(dd)
+        for (let i = 0; i < N; i++) {
+          if (!blocked[i] || room[i] < 0) continue
+          const x = i % gw, y = (i / gw) | 0
+          let best = Infinity
+          for (let dy = -2; dy <= 2; dy++) {
+            for (let dx = -2; dx <= 2; dx++) {
+              const nx = x + dx, ny = y + dy, j = ny * gw + nx
+              if (nx < 0 || ny < 0 || nx >= gw || ny >= gh || blocked[j] || room[j] !== room[i]) continue
+              best = Math.min(best, dd[j] + Math.sqrt(dx * dx + dy * dy) * cs)
+            }
+          }
+          lit[i] = Math.min(lit[i], best)
+        }
+        // the image of what the source reaches (scaled up softly by the effects)
+        let x0 = gw, y0 = gh, x1 = -1, y1 = -1
+        for (let i = 0; i < N; i++) {
+          if (lit[i] >= reach) continue
+          const x = i % gw, y = (i / gw) | 0
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+        }
+        if (x1 < 0) return null
+        const cv = document.createElement('canvas'), w0 = x1 - x0 + 1, h0 = y1 - y0 + 1
+        cv.width = w0; cv.height = h0
+        const ctx = cv.getContext('2d'), img = ctx.createImageData(w0, h0)
+        for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
+          const far = lit[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
+          img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
+          const end = 1 - (far / reach) * (far / reach)
+          img.data[at + 3] = far < reach ? Math.round(255 * end * end / (1 + (far / half) * (far / half))) : 0
+        }
+        ctx.putImageData(img, 0, 0)
+        return { img: cv, x: x0 * cs, y: y0 * cs, w: w0 * cs, h: h0 * cs }
+      }
+      // The light of every window: from the inner side of the glass.
+      function lightFields(windows, doors, polys) {
+        const grid = lightGrid(doors, polys)
+        const key = JSON.stringify([grid.rev, windows.map(w => [w.a, w.b, w.n])])
+        if (lightCache.key === key) return lightCache.list
+        const { cs, gw, gh } = grid, off = Math.max(0.3, cs * 1.4)
+        const list = windows.map(w => {
+          const seeds = [], n = Math.max(2, Math.ceil(dist(w.a, w.b) / cs))
           for (let i = 0; i <= n; i++) {
             const t = i / n, qx = w.a[0] + (w.b[0] - w.a[0]) * t + w.n[0] * off, qy = w.a[1] + (w.b[1] - w.a[1]) * t + w.n[1] * off
-            const i0 = clamp(Math.floor(qy / cs), 0, gh - 1) * gw + clamp(Math.floor(qx / cs), 0, gw - 1)
-            if (dd[i0] !== 0) { dd[i0] = 0; push(0, i0) }
+            seeds.push(clamp(Math.floor(qy / cs), 0, gh - 1) * gw + clamp(Math.floor(qx / cs), 0, gw - 1))
           }
-          while (heap.length) {
-            const [d, i] = pop()
-            if (d > dd[i] || d > LIGHT_R) continue
-            const x = i % gw, y = (i / gw) | 0
-            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-              if (!dx && !dy) continue
-              const nx = x + dx, ny = y + dy
-              if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue
-              const j = ny * gw + nx
-              if (blocked[j] || (dx && dy && (blocked[y * gw + nx] || blocked[ny * gw + x]))) continue
-              const nd = d + (dx && dy ? 1.4142 : 1) * cs
-              if (nd < dd[j]) { dd[j] = nd; push(nd, j) }
-            }
-          }
-          // under the walls: the nearest open cell of the same room, two cells around at most
-          lit.set(dd)
-          for (let i = 0; i < N; i++) {
-            if (!blocked[i] || room[i] < 0) continue
-            const x = i % gw, y = (i / gw) | 0
-            let best = Infinity
-            for (let dy = -2; dy <= 2; dy++) {
-              for (let dx = -2; dx <= 2; dx++) {
-                const nx = x + dx, ny = y + dy, j = ny * gw + nx
-                if (nx < 0 || ny < 0 || nx >= gw || ny >= gh || blocked[j] || room[j] !== room[i]) continue
-                best = Math.min(best, dd[j] + Math.sqrt(dx * dx + dy * dy) * cs)
-              }
-            }
-            lit[i] = best
-          }
-          // 3) image of what the window reaches (scaled up softly by the effects)
-          let x0 = gw, y0 = gh, x1 = -1, y1 = -1
-          for (let i = 0; i < N; i++) {
-            if (lit[i] >= LIGHT_R) continue
-            const x = i % gw, y = (i / gw) | 0
-            x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
-          }
-          if (x1 < 0) return null
-          const cv = document.createElement('canvas'), w0 = x1 - x0 + 1, h0 = y1 - y0 + 1
-          cv.width = w0; cv.height = h0
-          const ctx = cv.getContext('2d'), img = ctx.createImageData(w0, h0)
-          for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
-            const far = lit[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
-            img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
-            const end = 1 - (far / LIGHT_R) * (far / LIGHT_R)
-            img.data[at + 3] = far < LIGHT_R ? Math.round(255 * end * end / (1 + (far / LIGHT_HALF) * (far / LIGHT_HALF))) : 0
-          }
-          ctx.putImageData(img, 0, 0)
-          return { img: cv, x: x0 * cs, y: y0 * cs, w: w0 * cs, h: h0 * cs }
+          return spreadFrom(grid, seeds, LIGHT_HALF, LIGHT_R)
         })
         lightCache = { key, list }
         return list
       }
-      // Effects without weather: only what happens inside (sound waves) – the weather is unknown or below the ground.
+      /* The light of every lamp (since 0.28): from the whole of its symbol – a long light bar lights along its length –
+         or from a small disc in the middle of its bubble; only cells of its own room count as the source, so a bar
+         against a wall does not light the room behind it. Remembered per lamp place and shape: switching, dimming and
+         colours never compute anew. */
+      function lampFields(lamps, doors, polys) {
+        const grid = lightGrid(doors, polys), used = new Map(), { cs, gw, gh, room } = grid
+        const list = lamps.map(l => {
+          const s = l.shape, round = s.r != null
+          const key = [grid.rev, l.room, r3(l.x), r3(l.y), round ? 'b' : [s.rot, r3(s.lw), r3(s.lh), s.round ? 1 : 0].join(',')].join('|')
+          if (used.has(key)) return used.get(key)
+          if (lampCache.has(key)) { used.set(key, lampCache.get(key)); return used.get(key) }
+          const a = (s.rot || 0) * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), ext = round ? LAMP_SEED : Math.max(s.lw, s.lh) + cs
+          const seeds = []
+          for (let y = clamp(Math.floor((l.y - ext) / cs), 0, gh - 1); y <= clamp(Math.floor((l.y + ext) / cs), 0, gh - 1); y++) {
+            for (let x = clamp(Math.floor((l.x - ext) / cs), 0, gw - 1); x <= clamp(Math.floor((l.x + ext) / cs), 0, gw - 1); x++) {
+              const i = y * gw + x, px = (x + 0.5) * cs - l.x, py = (y + 0.5) * cs - l.y
+              if (room[i] !== l.room) continue
+              const lx = px * ca + py * sa, ly = -px * sa + py * ca   // into the turned frame of the symbol
+              const hit = round ? px * px + py * py <= LAMP_SEED * LAMP_SEED
+                : s.round ? (lx / s.lw) * (lx / s.lw) + (ly / s.lh) * (ly / s.lh) <= 1 : Math.abs(lx) <= s.lw && Math.abs(ly) <= s.lh
+              if (hit) seeds.push(i)
+            }
+          }
+          if (!seeds.length) seeds.push(clamp(Math.floor(l.y / cs), 0, gh - 1) * gw + clamp(Math.floor(l.x / cs), 0, gw - 1))
+          const field = spreadFrom(grid, seeds, LAMP_HALF, LAMP_R)
+          used.set(key, field)
+          return field
+        })
+        lampCache = used
+        return list
+      }
+      // Effects without weather: only what happens inside (lamps, sound waves) – the weather is unknown or below the ground.
       const INDOOR_ONLY = { kind: 'none', cloud: 0, rain: 0, snow: 0, wind: 0, indoor_only: true }
       // Mount, update or remove the effect canvas – depending on whether effects should run right now. Without weather
-      // (no address, a floor below the ground, Basic, effects switched off) it still runs while a speaker plays: the
-      // sound waves need no weather and belong to Basic; the light through the windows is part of the Pro effects.
+      // (no address, a floor below the ground, Basic, weather effects switched off) it still runs while a lamp shines or a
+      // speaker plays: the effects of the devices need no weather and belong to Basic (button "Effekte"); the light
+      // through the windows is part of the Pro weather effects (button "Wetter").
       function syncFx() {
         const shown = !st.editing && faces().length > 0 && !!HO.weatherFx
         let fx = shown && !underground() ? fxNow() : null
-        st.indoor = shown ? indoorNow(HO.can('floorplan_weather') && st.plan.fx !== false) : null   // light is Pro, sound is not
+        st.indoor = shown ? indoorNow(HO.can('floorplan_weather') && st.plan.fx !== false) : null   // window light is Pro, the devices are not
         renderWind(fx)
-        if (!fx && st.indoor && st.indoor.speakers.length) fx = INDOOR_ONLY
+        if (!fx && st.indoor && (st.indoor.speakers.length || st.indoor.lamps.length)) fx = INDOOR_ONLY
         if (!fx) { if (st.fxView) { st.fxView.destroy(); st.fxView = null } return }
         if (!st.fxView) st.fxView = HO.weatherFx.mount(wrap, { after: svg, getMask: fxMask, getSun: fxSun, getShift: fxShift, getIndoor: () => st.indoor })
         st.fxView.update(fx, { level: st.plan.fx_level })
@@ -2075,12 +2189,20 @@
           if (d) panel = `<div class="fp-panel"><div class="row between"><div><b>${HO.esc(d.name)}</b><div class="small muted">${HO.esc(d.room)} · ${HO.esc(HO.kindLabel[d.kind] || '')}</div></div>
             <button class="btn sm" data-act="unplace">Vom Plan nehmen</button></div>
             ${dockedTo(d.id) ? '' : symbolPicker(HO.planSymbols[entry.furniture] ? entry.furniture : '', 'Standard', HO.icon(d.kind), false)}
-            ${box ? `<div class="row wrap g8" style="margin-top:10px"><span class="small muted">Größe</span>
-              <button class="btn sm" data-act="symsize" data-v="-1" title="Kleiner" aria-label="Kleiner" ${box.size <= SYMBOL_MIN ? 'disabled' : ''}>${HO.icon('minus', 'sm')}</button>
-              <b class="fp-symsize">${Math.round(box.size * 100)} %</b>
-              <button class="btn sm" data-act="symsize" data-v="1" title="Größer" aria-label="Größer" ${box.size >= SYMBOL_MAX ? 'disabled' : ''}>${HO.icon('plus', 'sm')}</button>
-              <button class="btn sm" data-act="symturn" title="Um 45° drehen">${HO.icon('refresh', 'sm')} Drehen</button></div>
-              <p class="small muted" style="margin:8px 0 0">Größe auch direkt im Plan: die Ecke des Rahmens ziehen.</p>` : ''}
+            ${box ? (() => {
+              // size (proportion stays), width and height on their own (since 0.28) – the finger needs no handle
+              const width = box.size * box.stretch
+              const step = (act, label, value, lo, hi) => `<div class="row wrap g8" style="margin-top:8px"><span class="small muted fp-symlabel">${label}</span>
+                <button class="btn sm" data-act="${act}" data-v="-1" title="${label}: kleiner" aria-label="${label}: kleiner" ${value <= lo + 1e-6 ? 'disabled' : ''}>${HO.icon('minus', 'sm')}</button>
+                <b class="fp-symsize">${Math.round(value * 100)} %</b>
+                <button class="btn sm" data-act="${act}" data-v="1" title="${label}: größer" aria-label="${label}: größer" ${value >= hi - 1e-6 ? 'disabled' : ''}>${HO.icon('plus', 'sm')}</button></div>`
+              return `<div style="margin-top:2px">${step('symsize', 'Größe', box.size, SYMBOL_MIN, SYMBOL_MAX)}
+                ${step('symwidth', 'Breite', width, box.size * STRETCH_MIN, box.size * STRETCH_MAX)}
+                ${step('symheight', 'Höhe', box.size, Math.max(SYMBOL_MIN, width / STRETCH_MAX), Math.min(SYMBOL_MAX, width / STRETCH_MIN))}</div>
+              <div class="row wrap g8" style="margin-top:10px"><button class="btn sm" data-act="symturn" title="Um 45° drehen">${HO.icon('refresh', 'sm')} Drehen</button>
+                ${box.stretch !== 1 ? `<button class="btn sm" data-act="symratio" title="Breite und Höhe wieder im Verhältnis der Zeichnung">Seitenverhältnis zurücksetzen</button>` : ''}</div>
+              <p class="small muted" style="margin:8px 0 0">Auch direkt im Plan: Ecke des Rahmens = Größe, Mitte rechts = Breite, Mitte unten = Höhe. Die Linien bleiben dabei gleich stark.</p>`
+            })() : ''}
             ${levels().length > 1 ? `<label class="field" style="margin-top:12px"><span>Stockwerk</span><select data-f="devfloor">${levels().slice().reverse().map(f =>
               `<option value="${HO.esc(f.id)}" ${f === st.plan.floor ? 'selected' : ''}>${HO.esc(floorLabel(f))}</option>`).join('')}</select>
               <span class="hint">Ein anderes Stockwerk wählen = das Gerät zieht dorthin um und steht dort frei an derselben Stelle.</span></label>` : ''}
@@ -2521,9 +2643,13 @@
           return render()
         }
         if (kind === 'symscale' && st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id]) {
-          // corner of the frame of a plan symbol: the distance to its centre sets the size
-          const e = st.plan.devices[st.sel.id]
-          st.drag = { mode: 'symscale', id: st.sel.id, size: clamp(Number(e.size) || 1, SYMBOL_MIN, SYMBOL_MAX), reach: Math.max(dist(p, [e.x, e.y]), EPS), moved: false }
+          // frame of a plan symbol: the corner sets the size by its distance to the centre, a side the width or the height
+          // by the distance along the turned axis of the symbol
+          const e = st.plan.devices[st.sel.id], c = target.dataset.c || 'se', box = symbolBox(e, 1 / st.ppu)
+          const a = (box ? box.rot : 0) * Math.PI / 180, axis = c === 'e' ? [Math.cos(a), Math.sin(a)] : c === 's' ? [-Math.sin(a), Math.cos(a)] : null
+          const along = q => axis ? Math.abs((q[0] - e.x) * axis[0] + (q[1] - e.y) * axis[1]) : dist(q, [e.x, e.y])
+          const size = clamp(Number(e.size) || 1, SYMBOL_MIN, SYMBOL_MAX)
+          st.drag = { mode: 'symscale', id: st.sel.id, c, along, size, width: size * clamp(Number(e.stretch) || 1, STRETCH_MIN, STRETCH_MAX), reach: Math.max(along(p), EPS), moved: false }
           return
         }
         if (kind === 'dev') {
@@ -2703,7 +2829,11 @@
           d.moved = true
         } else if (d.mode === 'symscale') {
           const e = st.plan.devices[d.id]
-          if (e) { setSymbolSize(e, d.size * dist(p, [e.x, e.y]) / d.reach); d.moved = true }
+          const f = d.along(p) / d.reach
+          if (e && d.c === 'e') setSymbolSides(e, d.width * f, null)
+          else if (e && d.c === 's') setSymbolSides(e, d.width, d.size * f)
+          else if (e) setSymbolSize(e, d.size * f)
+          if (e) d.moved = true
         } else if (d.mode === 'gmove') {
           d.it.x = clamp(r3(p[0] - d.off[0]), 0, W); d.it.y = clamp(r3(p[1] - d.off[1]), 0, H); d.moved = true
         }
@@ -2864,15 +2994,19 @@
         else if (act === 'sym') {
           // symbol picker: plan symbol of the selected device (empty = standard bubble) or symbol of the selected group
           const key = t.dataset.v || '', entry = st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id]
-          if (entry) { if (key) entry.furniture = key; else { delete entry.furniture; delete entry.size; delete entry.rot } }
+          if (entry) { if (key) entry.furniture = key; else { delete entry.furniture; delete entry.size; delete entry.rot; delete entry.stretch } }
           else if (it && st.sel.type === 'group') it.icon = key
           else return
           save(); render()
         }
-        else if (act === 'symsize' || act === 'symturn') {
-          const entry = st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id]
-          if (!entry || !symbolBox(entry, 1 / st.ppu)) return
-          if (act === 'symsize') setSymbolSize(entry, (Number(entry.size) || 1) + (t.dataset.v === '-1' ? -SYMBOL_STEP : SYMBOL_STEP))
+        else if (['symsize', 'symwidth', 'symheight', 'symturn', 'symratio'].includes(act)) {
+          const entry = st.sel && st.sel.type === 'dev' && st.plan.devices[st.sel.id], box = entry && symbolBox(entry, 1 / st.ppu)
+          if (!box) return
+          const by = t.dataset.v === '-1' ? -SYMBOL_STEP : SYMBOL_STEP
+          if (act === 'symsize') setSymbolSize(entry, box.size + by)
+          else if (act === 'symwidth') setSymbolSides(entry, box.size * box.stretch + by, null)
+          else if (act === 'symheight') setSymbolSides(entry, null, box.size + by)
+          else if (act === 'symratio') delete entry.stretch
           else { const rot = ((Number(entry.rot) || 0) + SYMBOL_TURN) % 360; if (rot) entry.rot = rot; else delete entry.rot }
           save(); render()
         }
@@ -3114,6 +3248,10 @@
         // weather effects on/off (button "Wetter" above the floor plan) – the same setting as in the editor; saved at once,
         // so that a reload does not overwrite the change
         toggleFx() { st.plan.fx = st.plan.fx === false; render(); if (opts.onSave) opts.onSave(st.plan); return st.plan.fx },
+        // effects of the devices on/off (button "Effekte", since 0.28): light of the lamps and sound waves of the
+        // speakers – remembered per browser (`ho.fpEffects`), nothing is saved in the plan
+        get effects() { return st.effects },
+        toggleEffects() { st.effects = !st.effects; writePref(EFFECTS_PREF, st.effects); syncFx(); return st.effects },
         resize() { render() },
         startWithAutoRooms() { st.editing = true; autoRooms(); autoPlace(); save(); render() },
         // weather of the home page (fx from /api/weather) – weather effects and building shadows follow

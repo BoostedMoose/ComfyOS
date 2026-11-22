@@ -604,7 +604,7 @@
         <div class="card-head"><div><h3>Grundriss</h3><div class="small muted">${editing ? 'Bearbeiten – Änderungen werden automatisch gespeichert' : 'Antippen für Details'}</div></div>
         <div class="row fp-tools fp-toolscroll">${hasPlan && !editing ? `${floorSwitchHTML(ov, 'btn-icon sm')}<button class="btn-icon sm" data-act="fpZoomOut" title="Verkleinern" aria-label="Verkleinern">−</button><button class="btn-icon sm" data-act="fpZoomIn" title="Vergrößern" aria-label="Vergrößern">+</button><button class="btn-icon sm" data-act="fpFit" title="Ansicht zurücksetzen" aria-label="Ansicht zurücksetzen">${HO.icon('fit', 'sm')}</button>
           ${tool('fpNames', 'type', 'Namen')}${tool('fpFull', 'maximize', 'Vollbild')}${tool('fpHeat', 'flame', 'Heatmap', heat ? 'primary' : '').replace('<button ', `<button aria-pressed="${heat}" `)}${HO.weatherFx ? `<button class="btn sm fp-tool ${fxOn(ov) ? 'primary' : ''}" data-act="fpFx" aria-pressed="${fxOn(ov)}" aria-label="Wetter"
-            title="Wettereffekte rund um den Grundriss: Regen, Schnee, Wind, Sonne, Sterne">${HO.icon('cloud', 'sm')}<span class="lbl">Wetter</span>${HO.proTag('floorplan_weather')}</button>` : ''}` : ''}
+            title="Wettereffekte rund um den Grundriss: Regen, Schnee, Wind, Sonne, Sterne">${HO.icon('cloud', 'sm')}<span class="lbl">Wetter</span>${HO.proTag('floorplan_weather')}</button>` : ''}${effectsButton('btn sm fp-tool', 'primary', 'fpEffects', true)}` : ''}
         ${tool('roomManage', 'layers', 'Räume')}
         ${tool('fpEdit', editing ? 'check' : 'edit', editing ? 'Fertig' : 'Bearbeiten', editing ? 'primary' : '')}</div></div>
         <div id="fpEmpty" class="${hasPlan || editing ? 'hidden' : ''}"><div class="empty">${HO.icon('map', 'lg')}
@@ -667,6 +667,23 @@
 
   // weather effects: switched on, unlocked and possible with weather data
   const fxOn = ov => !!HO.weatherFx && HO.can('floorplan_weather') && ov.floorplan.weather !== false && ov.floorplan.fx !== false
+  /* Button "Effekte" (since 0.28): the effects of the devices in the floor plan – the light of the lamps in the colour
+     they shine, the sound waves of the speakers. Basic, remembered per browser (floorplan.js, `ho.fpEffects`). cls =
+     classes of the button, on = class while switched on, label = with its name (home page; the full screen shows the
+     symbol only). */
+  function effectsButton(cls, on, act, label) {
+    if (!HO.weatherFx) return ''
+    const lit = HO.floorplan.effectsOn(), name = 'Effekte'
+    return `<button class="${cls} ${lit ? on : ''}" data-act="${act}" aria-pressed="${lit}" aria-label="${name}"
+      title="Effekte der Geräte im Grundriss: Licht der Lampen in ihrer Farbe, Schallwellen der Lautsprecher">${HO.icon('sparkle', 'sm')}${label ? `<span class="lbl">${name}</span>` : ''}</button>`
+  }
+  // Switch the effects of the devices on or off.
+  function toggleEffects(btn, cls) {
+    if (!fp) return
+    const on = fp.toggleEffects()
+    btn.classList.toggle(cls, on); btn.setAttribute('aria-pressed', on)
+    HO.toast(on ? 'Effekte an' : 'Effekte aus')
+  }
   // Button "Wetter": switch the weather effects on the floor plan on or off – with a hint if Pro, address or weather are
   // missing for it.
   function toggleFx(btn, cls) {
@@ -1405,6 +1422,7 @@
         if (t.dataset.act === 'wx') return weatherSheet()
         if (t.dataset.act === 'warnHide') return hideWarnings()
         if (t.dataset.act === 'fpFx') return toggleFx(t, 'primary')
+        if (t.dataset.act === 'fpEffects') return toggleEffects(t, 'primary')
         if (t.dataset.act === 'fpHeat') { heat = !heat; fp.setHeat(heat); t.classList.toggle('primary', heat); t.setAttribute('aria-pressed', heat); return }
         if (t.dataset.act === 'fpZoomIn') { if (fp) fp.zoomBy(1.2); return }
         if (t.dataset.act === 'fpZoomOut') { if (fp) fp.zoomBy(1 / 1.2); return }
@@ -1500,6 +1518,7 @@
         <button class="pv-btn ${heat ? 'on' : ''}" data-act="pvHeat" title="Heatmap" aria-label="Heatmap" aria-pressed="${!!heat}">${HO.icon('flame', 'sm')}</button>
         <button class="pv-btn ${ov.floorplan.show_names ? 'on' : ''}" data-act="pvNames" title="Gerätenamen" aria-label="Gerätenamen" aria-pressed="${!!ov.floorplan.show_names}">${HO.icon('type', 'sm')}</button>
         ${HO.weatherFx ? `<button class="pv-btn ${fxOn(ov) ? 'on' : ''}" data-act="pvFx" title="Wettereffekte" aria-label="Wettereffekte" aria-pressed="${fxOn(ov)}">${HO.icon('cloud', 'sm')}</button>` : ''}
+        ${effectsButton('pv-btn', 'on', 'pvEffects', false)}
         <button class="pv-btn" data-act="pvIn" title="Vergrößern" aria-label="Vergrößern">${HO.icon('plus', 'sm')}</button>
         <button class="pv-btn" data-act="pvOut" title="Verkleinern" aria-label="Verkleinern">${HO.icon('minus', 'sm')}</button>
         <button class="pv-btn" data-act="pvFit" title="Ganzen Grundriss zeigen" aria-label="Ganzen Grundriss zeigen">${HO.icon('fit', 'sm')}</button></div>` : ''}
@@ -1573,6 +1592,7 @@
         if (act === 'pvWx') { wxOpen = !wxOpen; return updateWeather() }
         if (act === 'warn') return warnSheet()
         if (act === 'pvFx') return toggleFx(t, 'on')
+        if (act === 'pvEffects') return toggleEffects(t, 'on')
         if (!fp) return
         if (act === 'pvHeat') {
           heat = !heat; HO.state.planHeat = heat; fp.setHeat(heat)

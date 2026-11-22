@@ -1,5 +1,5 @@
 /* ComfyOS – effects on the floor plan: the weather around the house, light and sound inside (Pro: floorplan_weather;
-   the sound waves alone also run in Basic)
+   the effects of the devices – light of the lamps and sound waves, button "Effekte" – also run in Basic)
    A <canvas> above the floor plan SVG (pointer-events: none). The weather only happens OUTSIDE the building:
    after every frame rooms and walls are punched out again (destination-out) – inside there are neither particles
    nor lightning. Only then the inside layer is drawn (since 0.27, drawIndoor), each part clipped to its room and
@@ -24,11 +24,15 @@
                    moon: {el, dir, phase 0…1} or null}
      getShift() = {k, x, y} or null: how the painted plan is moved and scaled right now during a gesture
      getIndoor() = {windows: [{a, b, n, room, open, glow}], doors: [{a, b, n, rooms}],
-                  speakers: [{x, y, r, room, level}]} or null, in plan units:
+                  speakers: [{x, y, r, room, level}], lamps: [{id, x, y, room, shape, colors, level, effect, glow}],
+                  bubbles: [{x, y, r}], symbols: [{x, y, key, rot, kx, ky}]} or null, in plan units:
                   a window from a to b, n = unit vector into its room, room = index into getMask().polys, open = share
                   of light its shutter lets through, glow = {img, x, y, w, h}: how its light spreads through the home
                   (opacity = share of the light that arrives, through open doors too); a door between two rooms that
-                  light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1)
+                  light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1);
+                  a lamp that shines (since 0.28): shape = {r} of its bubble or {rot, lw, lh, round} of its plan symbol,
+                  colors = [[r, g, b], …] (several: a gradient or the members of a group), level = brightness 0…1,
+                  effect = running light effect or null, glow as at a window; bubbles and symbols stay free at the end
    fx (from /api/weather) = {kind, cloud, rain, snow, fog, wind, gust, wind_dir, thunder, storm, hail, frost,
                              frost_level, heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs.
                              fx.fog is missing in older data: then the kind "fog" stands for 1.
@@ -42,6 +46,10 @@
    blooms. In a clear night the moon does the same, far weaker and by its phase. A roller shutter shortens the patch
    from its far end and keeps the light out when closed. Rays exist only where sun or moon shine in directly. A speaker that plays sends rings that fade on their way; their strength follows a beat,
    so they do not march evenly. Nothing of this passes a wall: every part is clipped to the room it belongs to.
+   Lamps (since 0.28): every lamp that shines lights the home in the colour it shines right now – from its bubble or
+   from the whole of its plan symbol, through open doors like the window light, with a halo at its edge; changes
+   ease, light effects flicker. Device bubbles and plan symbols always stay free: nothing of the inside layer lies on
+   them.
 
    Margin around the house: precipitation, wind, light and stars keep a narrow margin to the wall free (MARGIN). Clouds
    and fog lie flat over the surroundings and reach up to the wall – they are drawn onto the main image,
@@ -144,6 +152,11 @@
   // sound waves: rings under way at once, seconds one travels and beat that shapes them – each from the quietest
   // to the loudest speaker; grid cells a ring travels
   const SOUND_RINGS = [3, 4], SOUND_PERIOD = [5.6, 4], SOUND_BPM = [52, 76], SOUND_REACH = [0.9, 3.8]
+  const SOUND_FPS = 20            // frames per second while only sound waves move (since 0.28; before the fast pace)
+  // light of the lamps (since 0.28): opacity of the light where it leaves a lamp at full brightness, of the halo right
+  // at its bubble or symbol and its width in grid cells, seconds a change of colour or brightness takes, how much the
+  // daylight takes away from it
+  const LAMP_LIGHT = 0.34, LAMP_HALO = 0.42, LAMP_HALO_W = 0.9, LAMP_EASE = 0.45, LAMP_DAY = 0.35
   const EDDY_MIN = 0.15           // Wirbel im Windschatten ab ~12 km/h, voll ab ~50 km/h
   const FLOW_CELLS = OLD ? 1400 : 2800   // flow grid: at most this many cells
   const TRAIL = OLD ? 8 : 12      // points in the tail of a wind line
@@ -163,11 +176,49 @@
   // blocked = parts of the building that throw a shadow shaft into them, frost = hoarfrost patches in the last frame
   // windows = windows that let light in (sky, sun or moon), beams = of them with a patch of sun- or moonlight,
   // moon = strength of the moonlight (0…1), sound = speakers that send waves, doors = doors light passes through,
-  // haze = lines of heat that rise from the walls in the sun
+  // haze = lines of heat that rise from the walls in the sun, lamps = lamps that shine (since 0.28), symbols = plan
+  // symbols left free; drawMs/indoorMs = moving average of the time a frame takes in the script, all of it and the
+  // inside layer (ms, since 0.28 – dev/measure.py reads them)
   const stats = { frames: 0, wisps: 0, cells: 0, solid: 0, builds: 0, step: 0, leaves: 0, puddles: 0, ripples: 0, rays: 0,
-    blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0, doors: 0, haze: 0 }
+    blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0, doors: 0, haze: 0, lamps: 0, symbols: 0, drawMs: 0, indoorMs: 0 }
   const rnd = (a, b) => a + Math.random() * (b - a)
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
+
+  const symbolShapes = {}   // outlines of the plan symbols by key (symbolShape)
+  /* The outline of a plan symbol as canvas paths (since 0.28), to punch it out of the inside layer: bubble and symbol
+     always lie on top. Read once per key from its drawing in floorplan_symbols.js (rect, circle, path – the only
+     elements it uses, a path may carry rotate(a 24 24)); `fill` = a body or an ink mark, a line (class l) is only
+     stroked. null without Path2D (the caller then punches the box of the symbol). */
+  function symbolShape(key) {
+    if (Object.prototype.hasOwnProperty.call(symbolShapes, key)) return symbolShapes[key]
+    const sym = HO.planSymbols && HO.planSymbols[key]
+    let list = null
+    if (sym && typeof Path2D === 'function') {
+      try {
+        list = []
+        const re = /<(rect|circle|path)\b([^>]*)\/>/g
+        let m
+        while ((m = re.exec(sym.svg))) {
+          const a = {}
+          m[2].replace(/([a-z-]+)="([^"]*)"/g, (all, k, v) => { a[k] = v; return all })
+          let p
+          if (m[1] === 'path') p = new Path2D(a.d || '')
+          else if (m[1] === 'circle') { p = new Path2D(); p.arc(+a.cx || 0, +a.cy || 0, +a.r || 0, 0, TAU) }
+          else {
+            const x = +a.x || 0, y = +a.y || 0, w = +a.width || 0, h = +a.height || 0, r = Math.min(+a.rx || 0, w / 2, h / 2)
+            p = new Path2D()
+            p.moveTo(x + r, y); p.arcTo(x + w, y, x + w, y + h, r); p.arcTo(x + w, y + h, x, y + h, r)
+            p.arcTo(x, y + h, x, y, r); p.arcTo(x, y, x + w, y, r); p.closePath()
+          }
+          const turn = /rotate\(\s*(-?[\d.]+)/.exec(a.transform || '')
+          list.push({ p, fill: !/\bl\b/.test(a.class || ''), rot: turn ? +turn[1] * Math.PI / 180 : 0 })
+        }
+      } catch (e) { list = null }   // a browser that cannot read the path: the box of the symbol is punched instead
+    }
+    return (symbolShapes[key] = list)
+  }
+  // A small number from a text that stays the same (phase of the flicker of a lamp).
+  const phaseOf = s => { let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 9973; return h / 9973 * TAU }
 
   /* Previews (owner/development): the eight weather kinds of the backend (fx.kind) and their overlays */
   const BASE = { cloud: 0, rain: 0, snow: 0, fog: 0, wind: 0.15, wind_dir: 250, thunder: false, storm: false, hail: false, frost: false, heat: 0 }
@@ -530,6 +581,10 @@
     let rayPan = [0, 0]                   // the sun rays have moved this far with the plan (pixels)
     let rayDrift = 0                      // … and this far across the light with the wind, like the clouds (pixels)
     const inRays = {}                     // the shafts behind every window (by its index), alive like the rays outside
+    const lampSeen = {}                   // the light of every lamp as drawn (by its id): eases towards what it shines
+    let lampAt = 0                        // when the light of the lamps was drawn last in a running animation (ms)
+    let tokensOf = null                   // style and classes of the root element when the colour tokens were read
+    let centre = { mask: null, x: null }  // middle and half extent of the building, per outline (lightning, frost)
     // Self-regulation (STEPS). The performance tier of the device counts at the time of mounting – if an earlier
     // view learned "economical", this one starts right there.
     let step = HO.perf && HO.perf.low ? START_LOW : 0, lag = 1, cost = 0, sinceCheck = 0
@@ -905,6 +960,7 @@
     /* ---------- Bild */
     function draw(now, dt) {
       if (!fx || !resize()) return
+      const began = performance.now()
       const painted = opts.getMask ? opts.getMask() : null
       if (!painted) return
       // During a gesture the painted plan stands moved in the frame: the house (punch mask) moves along. The
@@ -984,13 +1040,13 @@
       }
       const wash = (color, a) => { ctx.globalAlpha = a; ctx.fillStyle = color; ctx.fillRect(box.x, box.y, box.w, box.h) }
       // centre of the building (lightning strikes next to it)
-      let cx = mx, cy = my, rad = Math.max(box.w, box.h) / 2
-      const pts = [].concat.apply([], mask.polys || [])
-      if (pts.length) {
+      // (remembered per outline – since 0.28, before computed from all corners in every frame)
+      if (centre.mask !== mask) {
         let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-        for (const p of pts) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) }
-        cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; rad = Math.max(20, Math.max(x1 - x0, y1 - y0) / 2)
+        for (const poly of mask.polys || []) for (const p of poly) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]) }
+        centre = x1 >= x0 ? { mask, x: (x0 + x1) / 2, y: (y0 + y1) / 2, r: Math.max(20, Math.max(x1 - x0, y1 - y0) / 2) } : { mask, x: null }
       }
+      const cx = centre.x != null ? centre.x : mx, cy = centre.x != null ? centre.y : my, rad = centre.x != null ? centre.r : Math.max(box.w, box.h) / 2
 
       // 0) Daylight: by day the surroundings are brighter – evenly over the whole frame up to the wall, because sky light
       //    comes from everywhere (no corner stays dark). Clouds dim it, precipitation and fog more; under sun it is a
@@ -1546,7 +1602,12 @@
       edgeCtx.restore()
       mainCtx.restore()
       punch(mainCtx, false)      // clouds and fog: exactly up to the wall, nothing inside
+      const inside0 = performance.now()
       drawIndoor(mask, sun, t, dt, { day, dark, k, cloud, veil, sunlit, sunColor, moonlit, heat })
+      const end = performance.now()
+      // what drawing costs (since 0.28, for dev/measure.py and the diagnosis): moving averages in ms per frame
+      stats.drawMs = Math.round((stats.drawMs * 0.9 + (end - began) * 0.1) * 100) / 100
+      stats.indoorMs = Math.round((stats.indoorMs * 0.9 + (end - inside0) * 0.1) * 100) / 100
       if (!shown) { shown = true; setTimeout(() => { canvas.style.opacity = '' }, 30) }
     }
     /* The inside layer (since 0.27), drawn onto the main image after the building was punched out: light through the
@@ -1560,7 +1621,7 @@
        light, 0…1), sunlit, sunColor, moonlit (0…1), heat. */
     function drawIndoor(mask, sun, t, dt, e) {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, v = mask.view, c = mainCtx, box = mask.box
-      stats.windows = stats.beams = stats.sound = stats.doors = 0
+      stats.windows = stats.beams = stats.sound = stats.doors = stats.lamps = stats.symbols = 0
       if (!indoor || !v || !(v.s > 0)) return
       const polys = mask.polys || [], at = p => [v.x + p[0] * v.s, v.y + p[1] * v.s], wall = mask.wall || 6
       // limit drawing to one room; false if the room does not exist (any more)
@@ -1721,10 +1782,131 @@
         blooms.push({ x: l.mid[0], y: l.mid[1], len: l.len, turn: Math.atan2(l.b[1] - l.a[1], l.b[0] - l.a[0]), a: l.direct * (0.4 + 0.6 * l.w.open), tint })
         c.restore()
       }
-      // doors the glow passes: one of their rooms is lit by a window
-      const passed = lights.length ? (indoor.doors || []).filter(d => (bright[d.rooms[0]] || 0) > 0.03 || (bright[d.rooms[1]] || 0) > 0.03) : []
+      // 2) Lamps (since 0.28): every lamp that shines lights the home in its own colour – from the whole of its symbol
+      //    or from its bubble, spreading through open doors like the window light (its image comes from the floor
+      //    plan) –, with a halo right at its edge. Colour and brightness are what the lamp shines right now: a white
+      //    tone, a colour, the points of a gradient along a light bar, the colours of a scene. A change eases over
+      //    LAMP_EASE seconds, a lamp switched off fades; a running light effect flickers (candle, fire), twinkles
+      //    (sparkle, glisten) or breathes. Lamps are a little less striking by day (LAMP_DAY).
+      // own clock: the first frame of an animation has no dt, but a change that starts it must ease from there on
+      const clock = performance.now(), live = running(), ldt = live && lampAt ? Math.min(0.1, (clock - lampAt) / 1000) : 0
+      lampAt = live ? clock : 0
+      const ease = live ? 1 - Math.exp(-ldt / LAMP_EASE) : 1, shining = [], lampRooms = {}, current = {}
+      for (const l of indoor.lamps || []) {
+        current[l.id] = true
+        let m = lampSeen[l.id]
+        if (!m) m = lampSeen[l.id] = { cols: l.colors.map(col => col.slice()), level: live ? 0 : l.level, ph: phaseOf(l.id), cv: null, key: '' }
+        if (m.cols.length !== l.colors.length) { const old = m.cols; m.cols = l.colors.map((col, i) => old[Math.floor(i * old.length / l.colors.length)].slice()) }
+        m.cols.forEach((col, i) => { for (let j = 0; j < 3; j++) col[j] += (l.colors[i][j] - col[j]) * ease })
+        m.level += (l.level - m.level) * ease
+        m.lamp = l; m.shape = mask.shape
+        shining.push(m)
+      }
+      for (const id of Object.keys(lampSeen)) {
+        if (current[id]) continue
+        const m = lampSeen[id]
+        m.level -= m.level * ease
+        // switched off: it fades – but not on another floor or another plan, where it never stood
+        if (!live || m.level < 0.01 || m.shape !== mask.shape) delete lampSeen[id]; else shining.push(m)
+      }
+      // running light effect: candle and fire flicker, sparkle and glisten twinkle, every other effect breathes
+      const flicker = m => {
+        const fxName = m.lamp.effect, p = m.ph
+        if (!fxName || REDUCED) return 1
+        if (fxName === 'candle' || fxName === 'fire') return 0.82 + 0.1 * Math.sin(t * 7.3 + p) * Math.sin(t * 2.9 + 2 * p) + 0.08 * Math.sin(t * 13.1 + 3 * p) * Math.sin(t * 0.7 + p)
+        if (fxName === 'sparkle' || fxName === 'glisten') return 0.9 + 0.1 * Math.pow(Math.abs(Math.sin(t * 1.3 + p)), 12)
+        return 0.92 + 0.08 * Math.sin(t * 0.8 + p)
+      }
+      // the colours of a lamp lie along its symbol – a gradient runs from one end of a light bar to the other –, at a
+      // bubble across it (as HO.lightGlow lays them, 100°); plan units
+      const axisOf = l => {
+        const s = l.shape
+        if (s.r != null) { const h = s.r + LAMP_HALO_W; return [[l.x - h * 0.985, l.y - h * 0.174], [l.x + h * 0.985, l.y + h * 0.174]] }
+        const a = (s.rot || 0) * Math.PI / 180
+        return [[l.x - Math.cos(a) * s.lw, l.y - Math.sin(a) * s.lw], [l.x + Math.cos(a) * s.lw, l.y + Math.sin(a) * s.lw]]
+      }
+      const css = (col, alpha) => `rgba(${Math.round(col[0])},${Math.round(col[1])},${Math.round(col[2])},${alpha})`
+      // one colour, or the colours as a gradient from a to b (in the space of the canvas g)
+      const paint = (g, cols, a, b) => {
+        if (cols.length === 1) return css(cols[0], 1)
+        const gr = g.createLinearGradient(a[0], a[1], b[0], b[1])
+        cols.forEach((col, i) => gr.addColorStop(i / (cols.length - 1), css(col, 1)))
+        return gr
+      }
+      // the image of the light of a lamp in its colours – made anew only when they or the image change
+      const tintedLamp = m => {
+        const l = m.lamp, f = l.glow, img = f.img, key = m.cols.map(col => col.map(Math.round).join(',')).join('|')
+        if (m.cv && m.field === f && m.key === key) return m.cv
+        const cv = m.cv || (m.cv = document.createElement('canvas'))
+        if (cv.width !== img.width || cv.height !== img.height) { cv.width = img.width; cv.height = img.height }
+        const g = cv.getContext('2d'), sx = img.width / f.w, sy = img.height / f.h, into = p => [(p[0] - f.x) * sx, (p[1] - f.y) * sy]
+        const [a, b] = axisOf(l)
+        g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0)
+        g.globalCompositeOperation = 'source-in'; g.fillStyle = paint(g, m.cols, into(a), into(b)); g.fillRect(0, 0, cv.width, cv.height)
+        m.field = f; m.key = key
+        return cv
+      }
+      /* The halo at the edge of the bubble or symbol – strokes around its outline, wider ones fainter (the inner half
+         lies under the symbol, which is left free at the end). Drawn once per colour, shape and scale into an image of
+         its own, in the turned frame of the symbol; every frame only lays it on (since 0.28: no strokes per frame). */
+      const haloOf = m => {
+        const l = m.lamp, s = l.shape, bubble = s.r != null, wide = LAMP_HALO_W * v.s
+        const w = (bubble ? s.r : s.lw) * v.s, h = (bubble ? s.r : s.lh) * v.s, pad = wide + 2
+        const cols = m.cols.map(col => col.map(Math.round).join(',')).join('|')
+        const key = [cols, Math.round(w * 2), Math.round(h * 2), Math.round(wide * 2), bubble ? 'b' : s.round ? 'o' : 'r', dpr].join('/')
+        const cw = 2 * (w + pad), ch = 2 * (h + pad)
+        if (m.halo && m.haloKey === key) return { img: m.halo, w: cw, h: ch }
+        const cv = m.halo || (m.halo = document.createElement('canvas'))
+        cv.width = Math.ceil(cw * dpr); cv.height = Math.ceil(ch * dpr)
+        const g = cv.getContext('2d')
+        g.setTransform(dpr, 0, 0, dpr, cw / 2 * dpr, ch / 2 * dpr)
+        g.beginPath()
+        if (bubble) g.arc(0, 0, w, 0, TAU)
+        else if (s.round && g.ellipse) g.ellipse(0, 0, w, h, 0, 0, TAU)
+        else {
+          const r = Math.min(w, h) * 0.45
+          g.moveTo(-w + r, -h); g.arcTo(w, -h, w, h, r); g.arcTo(w, h, -w, h, r); g.arcTo(-w, h, -w, -h, r); g.arcTo(-w, -h, w, -h, r); g.closePath()
+        }
+        // the colours along the axis (axisOf), here relative to the middle and before the turn
+        const H = (s.r + LAMP_HALO_W) * v.s
+        g.strokeStyle = bubble ? paint(g, m.cols, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174]) : paint(g, m.cols, [-w, 0], [w, 0])
+        g.lineJoin = 'round'; g.globalAlpha = 0.17
+        for (let i = 6; i >= 1; i--) { g.lineWidth = 2 * wide * Math.pow(i / 6, 1.4); g.stroke() }
+        m.haloKey = key
+        return { img: cv, w: cw, h: ch }
+      }
+      const daylight = 1 - LAMP_DAY * (e.day || 0)
+      for (const m of shining) m.now = m.level * flicker(m) * e.k * daylight
+      // the light that spreads: clipped to the rooms as a whole, it passes open doors by itself
+      const lampSpread = () => {
+        for (const m of shining) {
+          const f = m.lamp.glow
+          if (!f || !f.img || m.now < 0.004) continue
+          c.globalAlpha = clamp(LAMP_LIGHT * m.now, 0, 0.5)
+          c.drawImage(tintedLamp(m), v.x + f.x * v.s, v.y + f.y * v.s, f.w * v.s, f.h * v.s)
+        }
+        c.globalAlpha = 1
+      }
+      if (shining.length) {
+        c.save(); allRooms(); c.clip(); lampSpread(); c.restore()
+        // the halo at the edge of the bubble or symbol, clipped to the room of the lamp
+        for (const m of shining) {
+          const l = m.lamp
+          if (m.now < 0.004 || !enter(l.room)) continue
+          const halo = haloOf(m), p = at([l.x, l.y])
+          c.translate(p[0], p[1]); c.rotate((l.shape.rot || 0) * Math.PI / 180)
+          c.globalAlpha = clamp(LAMP_HALO * m.now, 0, 0.6)
+          c.drawImage(halo.img, -halo.w / 2, -halo.h / 2, halo.w, halo.h)
+          c.globalAlpha = 1
+          c.restore()
+          lampRooms[l.room] = true
+          stats.lamps++
+        }
+      }
+      // doors the glow passes: one of their rooms is lit by a window or a lamp
+      const passed = (indoor.doors || []).filter(d => lights.length && ((bright[d.rooms[0]] || 0) > 0.03 || (bright[d.rooms[1]] || 0) > 0.03) || lampRooms[d.rooms[0]] || lampRooms[d.rooms[1]])
       stats.doors = passed.length
-      // 2) Sound: rings spread from every speaker that plays and fade on their way. How strong a ring is was decided by
+      // 3) Sound: rings spread from every speaker that plays and fade on their way. How strong a ring is was decided by
       //    the beat at the moment it left the speaker – so the rings differ and the speaker itself pulses with it. A
       //    quiet speaker sends few, small, slow rings; a loud one more and further – calm in both cases (since 0.27.1).
       for (const s of indoor.speakers) {
@@ -1753,28 +1935,57 @@
       c.stroke()
       c.globalCompositeOperation = 'source-over'
       // … except in an open door the glow passes: its threshold gets the glow back
-      for (const d of passed) {
-        const a = at(d.a), b = at(d.b), nx = d.n[0] * (wall / 2 + 0.5), ny = d.n[1] * (wall / 2 + 0.5)
+      //   (all thresholds as one clip, the light laid in once – since 0.28, before once per door)
+      if (passed.length) {
         c.save()
-        c.beginPath(); c.moveTo(a[0] + nx, a[1] + ny); c.lineTo(b[0] + nx, b[1] + ny); c.lineTo(b[0] - nx, b[1] - ny); c.lineTo(a[0] - nx, a[1] - ny)
-        c.closePath(); c.clip()
-        spread()
+        c.beginPath()
+        for (const d of passed) {
+          const a = at(d.a), b = at(d.b), nx = d.n[0] * (wall / 2 + 0.5), ny = d.n[1] * (wall / 2 + 0.5)
+          c.moveTo(a[0] + nx, a[1] + ny); c.lineTo(b[0] + nx, b[1] + ny); c.lineTo(b[0] - nx, b[1] - ny); c.lineTo(a[0] - nx, a[1] - ny); c.closePath()
+        }
+        c.clip()
+        spread(); lampSpread()
         c.restore()
       }
-      // 3) Bloom: a window with direct light glows itself – a flat halo along the glass, on top of the wall
+      // 4) Bloom: a window with direct light glows itself – a flat halo along the glass, on top of the wall
       for (const b of blooms) {
         c.save()
         c.translate(b.x, b.y); c.rotate(b.turn); c.scale(1, 0.3)
         glow(0, 0, b.len * 0.56, b.tint, 0.26 * b.a * e.k)
         c.restore()
       }
-      // 4) The bubbles of the devices stay free (since 0.27.4): the canvas lies above the SVG, light and sound waves
+      // 5) The bubbles of the devices stay free (since 0.27.4): the canvas lies above the SVG, light and sound waves
       //    would otherwise veil them and the plan would seem to shine through the symbol.
       if (indoor.bubbles && indoor.bubbles.length) {
         c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.fillStyle = '#000'
         c.beginPath()
         for (const b of indoor.bubbles) { const p = at([b.x, b.y]), r = b.r * v.s + 1.5; c.moveTo(p[0] + r, p[1]); c.arc(p[0], p[1], r, 0, TAU) }
         c.fill()
+        c.globalCompositeOperation = 'source-over'
+      }
+      // … and the plan symbols too (since 0.28): their bodies filled, every line traced a little wider than drawn, in
+      //    their scale and turn – window light, lamp light and sound lie around them, never on them
+      if (indoor.symbols && indoor.symbols.length) {
+        const edge = 1.5 * clamp(v.s / 30, 0.55, 1) + 2.5   // px: the line of the symbol (app.css .fp-sym) and a margin
+        c.globalCompositeOperation = 'destination-out'; c.globalAlpha = 1; c.fillStyle = '#000'; c.strokeStyle = '#000'
+        c.lineJoin = 'round'; c.lineCap = 'round'
+        for (const s of indoor.symbols) {
+          const p = at([s.x, s.y]), sx = s.kx * v.s, sy = s.ky * v.s, parts = symbolShape(s.key), sym = HO.planSymbols && HO.planSymbols[s.key]
+          if (!sym || !(sx > 0) || !(sy > 0)) continue
+          c.save()
+          c.translate(p[0], p[1]); c.rotate((s.rot || 0) * Math.PI / 180)
+          if (parts) {
+            c.scale(sx, sy); c.translate(-24, -24); c.lineWidth = edge / Math.sqrt(sx * sy)
+            for (const part of parts) {
+              if (part.rot) { c.save(); c.translate(24, 24); c.rotate(part.rot); c.translate(-24, -24) }
+              if (part.fill) c.fill(part.p)
+              c.stroke(part.p)
+              if (part.rot) c.restore()
+            }
+          } else c.fillRect(-sym.w * sx / 2 - edge, -sym.h * sy / 2 - edge, sym.w * sx + 2 * edge, sym.h * sy + 2 * edge)
+          c.restore()
+          stats.symbols++
+        }
         c.globalCompositeOperation = 'source-over'
       }
       c.restore()
@@ -1858,11 +2069,28 @@
     /* ---------- Sequence */
     // Does a speaker play on the floor shown? (Its sound waves move – the image then runs at the fast pace.)
     const sounding = () => { const indoor = opts.getIndoor ? opts.getIndoor() : null; return !!(indoor && indoor.speakers.length) }
-    // fast (30 frames/s) only as long as something falls, flies, flashes or sounds; for clouds, fog, stars, hoarfrost and sun rays a
-    // calm tick is enough. Stars only count in darkness, sun rays only while the sun shines.
-    const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor || sounding())
-    const animated = () => !!fx && !REDUCED && !!(quick() || clouds.length || banks.length || (stars.length && darkNow > 0.15) || glints.length ||
-      ((rays.length || shimmers.length) && sunUp) || fx.thunder)
+    // Does the light of a lamp change right now (since 0.28)? A running light effect flickers or breathes all the time; a
+    // new colour or brightness eases in, a lamp switched off fades out – then the image runs at the calm pace, otherwise
+    // the light of the lamps is a still image.
+    const lampsBusy = () => {
+      if (REDUCED) return false
+      const indoor = opts.getIndoor ? opts.getIndoor() : null, list = (indoor && indoor.lamps) || [], ids = {}
+      for (const l of list) {
+        ids[l.id] = true
+        const m = lampSeen[l.id]
+        if (l.effect || !m || Math.abs(m.level - l.level) > 0.01 || m.cols.length !== l.colors.length) return true
+        if (m.cols.some((col, i) => Math.abs(col[0] - l.colors[i][0]) + Math.abs(col[1] - l.colors[i][1]) + Math.abs(col[2] - l.colors[i][2]) > 3)) return true
+      }
+      return Object.keys(lampSeen).some(id => !ids[id])
+    }
+    // fast (30 frames/s) only as long as something falls, flies or flashes; sound waves are slow rings – SOUND_FPS is
+    // enough for them (since 0.28, before they drove the whole image at the fast pace); for clouds, fog, stars, hoarfrost,
+    // sun rays and the light of the lamps a calm tick is enough. Stars only count in darkness, sun rays only while the sun
+    // shines.
+    const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor)
+    const fpsNow = () => quick() ? STEPS[step].fps : sounding() ? Math.min(STEPS[step].fps, Math.max(STEPS[step].calm, SOUND_FPS)) : STEPS[step].calm
+    const animated = () => !!fx && !REDUCED && !!(quick() || sounding() || clouds.length || banks.length || (stars.length && darkNow > 0.15) || glints.length ||
+      ((rays.length || shimmers.length) && sunUp) || fx.thunder || lampsBusy())
     const running = () => alive && !held && animated() && visible && !document.hidden
     // after every frame: average delay and cost; every CHECK_EVERY frames decide whether a step back is needed
     function govern(gap, interval, spent) {
@@ -1881,7 +2109,7 @@
     function frame(ts) {
       raf = 0
       if (!running()) return
-      const interval = 1000 / (quick() ? STEPS[step].fps : STEPS[step].calm)
+      const interval = 1000 / fpsNow()
       if (!last || ts - last >= interval - 2) {
         const gap = last ? ts - last : 0, dt = Math.min(0.1, gap / 1000)
         last = ts; stats.frames++
@@ -1909,7 +2137,10 @@
       // Take over new weather or a new strength; without weather the image is cleared.
       update(next, o) {
         const lv = o && o.level === 'subtle' ? 'subtle' : 'normal'
-        col = tokens()   // the accent colour may have changed
+        // the accent colour may have changed (core.js sets it on the root element) – read the tokens only then:
+        // getComputedStyle forces the browser to compute the styles, and update runs with every live message (since 0.28)
+        const root = document.documentElement, look = (root.getAttribute('style') || '') + '|' + root.className
+        if (look !== tokensOf) { col = tokens(); tokensOf = look }
         fx = next || null; level = lv
         if (!fx) { mainCtx.setTransform(1, 0, 0, 1, 0, 0); mainCtx.clearRect(0, 0, canvas.width, canvas.height); return }
         if (resize()) seed()
