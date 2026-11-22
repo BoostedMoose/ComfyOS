@@ -1,6 +1,6 @@
 """UI check of the System page with Playwright: tabs "Einstellungen" and "Plugins", pairing and importing Hue,
-tiles in columns and freely arranged, passwords as dots, plus lamps and scene chips of the home page
-(test world world_hue; desktop, iPhone/Chromium, iPhone/WebKit).
+tiles in columns and freely arranged, passwords as dots, plus lamps and scene chips of the home page; since 0.29.2 the
+demo home is opened and left again with "Demo beenden" (test world world_hue; desktop, iPhone/Chromium, iPhone/WebKit).
 
     python tests/ui/ui_system.py [path-to-comfyos]
 
@@ -474,6 +474,33 @@ def run(p, engine, name, **ctx_args):
     shot("5-import")
     page.click('[data-imp="apply"]')
     page.wait_for_selector(f'.chip:has-text("UI-Test {name}")', timeout=8000)
+
+    # demo home: open it from the tab "Einstellungen" and leave it with "Demo beenden" (since 0.29.2 – before, the click
+    # handler of the page replaced the one of the demo tile and the button did nothing)
+    def demo_is(active):
+        """Wait until the server says this session is (not) in the demo – across the reload the buttons start."""
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                if page.evaluate("async () => (await HO.api('demo')).active") is active:
+                    return True
+            except Exception:
+                pass                     # the page is just reloading: ask again
+            page.wait_for_timeout(200)
+        return False
+
+    page.goto(BASE + "/#settings")
+    page.wait_for_selector('[data-act="demoStart"]', timeout=10000)
+    page.click('[data-act="demoStart"]')
+    if not demo_is(True):
+        problems.append(f"{name}: „Demo-Wohnung ansehen“ does not open the demo")
+    else:
+        page.goto(BASE + "/#settings")
+        page.wait_for_selector('[data-act="demoStop"]', timeout=10000)
+        page.click('[data-act="demoStop"]')
+        if not demo_is(False):
+            problems.append(f"{name}: the demo home cannot be left with „Demo beenden“")
+            page.evaluate("() => HO.api('demo/stop', {method: 'POST'})")       # the next pass starts outside the demo
 
     print(f"{name}: Reaktion beim Tippen {react_ms:.0f} ms, Hue-App -> Seite {live_ms and round(live_ms)} ms, Konsolenfehler: {len(errs)}")
     problems.extend(f"{name} Konsole: {e}" for e in errs)

@@ -99,7 +99,9 @@ when something was added.
 
 - **Demo in the page title instead of a bar:** in the demo every page title ends in "– DEMO" (`HO.demoTitle()` in `HO.go` and in
   the title of the home page, `overview.js` `setTitle`; class `.pt-demo`), the browser tab too (`HO.demoTitle(true)`). The bar
-  `#demoBar` is gone; "Zurücksetzen" and "Demo beenden" are on the System page (`renderDemo` → `HO.demoAction`).
+  `#demoBar` is gone; "Zurücksetzen" and "Demo beenden" are on the System page (`renderDemo` → `HO.demoAction`). Since 0.29.2 their
+  clicks go through the one click handler of the page (`HO.pages.settings.render`): `renderDemo` set a handler of its own,
+  which that one replaced right after – the buttons did nothing. Rule: the System page has exactly one `page.onclick`.
 - **Tile "Externe Verbindungen" (System, eyebrow "Datenschutz") kept short:** per target a status dot instead of a badge
   (`.statusdot` green = `on`, yellow = `on_demand`, grey = `off`; the state text is its `aria-label`/tooltip), a short title, the
   purpose in one line and one line "Sendet … · <trigger> · zuletzt …"; the hosts are in the tooltip of the entry. The texts of the

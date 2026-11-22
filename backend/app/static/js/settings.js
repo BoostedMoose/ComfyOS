@@ -220,13 +220,9 @@
     page.innerHTML = headHTML('system') + `<div class="grid cols-2"><section class="card"><div class="card-head"><div><div class="eyebrow">Demo</div><h3>Du bist in der Demo-Wohnung</h3></div>${HO.icon('home')}</div>
         <p class="small muted">Alles hier ist ein Beispiel: Geräte, Grundriss, Szenen, Heizplan und Flows. Was du änderst, bleibt in der Demo. Flows werden gezeigt, laufen in der Demo aber nicht. Systemeinstellungen, Backups und Updates gehören zu deiner eigenen Wohnung und sind ausgeblendet.</p>
         <div class="form-actions"><button class="btn ghost" data-act="demoReset">Zurücksetzen</button><button class="btn primary" data-act="demoStop">Demo beenden</button></div></section></div>`
-    // the work is done by app.js (HO.demoAction) – the page title says "– DEMO" on every page
-    page.onclick = e => {
-      const tab = e.target.closest('[data-systab]')
-      if (tab) { if (tab.dataset.systab === 'plugins') location.hash = 'settings?tab=plugins'; return }
-      const t = e.target.closest('[data-act]')
-      if (t) HO.demoAction(t.dataset.act)
-    }
+    // the buttons go through the one click handler of the page (HO.pages.settings) to app.js (HO.demoAction); the page
+    // title says "– DEMO" on every page. A handler of its own here was overwritten by that one, so "Demo beenden" did
+    // nothing (fixed in 0.29.2).
   }
 
   // Load and draw the tab "Einstellungen": all tiles of the System page, then the tile grid and the content that
@@ -687,6 +683,7 @@
         if (t.dataset.act === 'arrange') { if (grid) grid.arrange(!grid.arranging); return }
         if (t.dataset.act === 'arrangeAuto') { if (grid) grid.reset(); return }
         if (t.dataset.act === 'demoStart') { await HO.startDemo(); return }
+        if (t.dataset.act === 'demoStop' || t.dataset.act === 'demoReset') { await HO.demoAction(t.dataset.act); return }
         const reloadLists = () => HO.plugins.reload(page)
         try {
           if (t.dataset.preview) {
