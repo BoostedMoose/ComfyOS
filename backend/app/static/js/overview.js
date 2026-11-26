@@ -1314,6 +1314,7 @@
     const ov = () => HO.state.overview
     const key = r.key || r.room_id
     const name = (info && info.name) || r.name || 'Raum'
+    // Content of the sheet from the current overview: temperatures, room light switch, brightness, scenes, lamps, other devices.
     const body = () => {
       const devs = ov().devices.filter(d => key && d.room_id === key)
       const lamps = devs.filter(d => d.kind === 'light').sort((a, b) => HO.byName(a.name, b.name))

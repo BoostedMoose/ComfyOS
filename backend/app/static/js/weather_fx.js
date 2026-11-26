@@ -165,8 +165,9 @@
   const SOUND_FPS = 20            // frames per second while only sound waves move (since 0.28; before the fast pace)
   // light of the lamps (since 0.28): opacity of the light where it leaves a lamp at full brightness, of the halo right
   // at its bubble or symbol and its width in grid cells, seconds a change of colour or brightness takes, how much the
-  // daylight takes away from it
-  const LAMP_LIGHT = 0.34, LAMP_HALO = 0.42, LAMP_HALO_W = 0.9, LAMP_EASE = 0.45, LAMP_DAY = 0.35
+  // daylight takes away from it. Since 0.30.1 the halo is faint and the light itself stronger (wish of the operator:
+  // the bright rim read as a second lamp, the glow in the room was hardly there)
+  const LAMP_LIGHT = 0.52, LAMP_HALO = 0.16, LAMP_HALO_W = 0.9, LAMP_EASE = 0.45, LAMP_DAY = 0.35
   const EDDY_MIN = 0.15           // Wirbel im Windschatten ab ~12 km/h, voll ab ~50 km/h
   const FLOW_CELLS = OLD ? 1400 : 2800   // flow grid: at most this many cells
   const TRAIL = OLD ? 8 : 12      // points in the tail of a wind line
@@ -1955,7 +1956,7 @@
         for (const m of shining) {
           const f = m.lamp.glow
           if (!f || !f.img || m.now < 0.004) continue
-          c.globalAlpha = clamp(LAMP_LIGHT * m.now, 0, 0.5)
+          c.globalAlpha = clamp(LAMP_LIGHT * m.now, 0, 0.7)
           c.drawImage(tintedLamp(m), v.x + f.x * v.s, v.y + f.y * v.s, f.w * v.s, f.h * v.s)
         }
         c.globalAlpha = 1
@@ -2209,10 +2210,10 @@
     const ro = window.ResizeObserver ? new ResizeObserver(() => { if (resize() && !raf) draw(0, 0) }) : null
     if (ro) ro.observe(canvas)
 
+    let calmSig = ''
     // What the calm single image depends on (since 0.30): the seeded weather, size, colours, the position of sun
     // and moon (rounded – it creeps) and the state of the inside layer. If none of it changed, a live message
     // repaints nothing – before, every message redrew the whole canvas every few seconds.
-    let calmSig = ''
     function sigOf() {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, sun = sunNow(), m = opts.getMask ? opts.getMask() : null
       const parts = [seedKey, level, W, H, tokensOf || '', m ? m.shape || '' : '',

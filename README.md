@@ -2,7 +2,7 @@
 
 **Die lokale Smart-Home-Zentrale mit Grundriss.** ComfyOS bringt Philips Hue, FRITZ!Box, die Magenta SmartHome Home Base, Zigbee2MQTT, Matter und Sonos in eine Oberfläche. Alles läuft im eigenen Heimnetz, ohne Cloud-Konto und ohne Konfigurationsdateien.
 
-![Startseite der Demo-Wohnung: Grundriss mit Heatmap, Regen und Wind rund ums Haus](docs/screenshot.png)
+![Startseite der Demo-Wohnung bei Nacht: Lampen leuchten im Grundriss in ihren Farben, der Lautsprecher sendet Schallwellen, draußen Regen und Wind](docs/screenshot.png)
 
 > Privates Community-Projekt, nicht mit der Deutschen Telekom verbunden. „Magenta“ und „QIVICON“ sind Marken ihrer jeweiligen Inhaber.
 
@@ -116,7 +116,7 @@ ComfyOS sendet keine Telemetrie, keine Statistik und keine Absturzberichte. Eine
 
 ## Projektstand
 
-Aktuell ist **Version 0.26**. ComfyOS läuft täglich in einem echten Zuhause mit Home Base, Hue, FRITZ!Box und Sonos. Was dort noch nicht nachgeprüft werden konnte, ist als offen vermerkt, zum Beispiel Zigbee2MQTT-Geräte und Matter am Echo.
+Aktuell ist **Version 0.30**. ComfyOS läuft täglich in einem echten Zuhause mit Home Base, Hue, FRITZ!Box und Sonos. Was dort noch nicht nachgeprüft werden konnte, ist als offen vermerkt, zum Beispiel Zigbee2MQTT-Geräte und Matter am Echo.
 
 Als Nächstes folgt ein Docker-Image mit Installation per Einzeiler. Bis Version 1.0 ist ComfyOS eine Vorabversion für erste Tester.
 

@@ -90,9 +90,13 @@
   // Suffix of the page title in the demo (markup for the top bar, or plain text for the browser tab).
   HO.demoTitle = plain => !HO.demo.active ? '' : plain ? ' – DEMO' : ' <span class="pt-demo">– DEMO</span>'
   // Buttons of the demo (System page): end it (back to the own home page) or set up the sample home anew.
+  // Both ways out of and into the demo reload the page on the home page. The address is changed without a hashchange
+  // (replaceState): assigning location.hash first let the old page render the home page against a server that had
+  // already switched sides – its heating sync request got a 403 (fixed in 0.30.1).
+  const reloadHome = () => { history.replaceState(null, '', location.pathname + location.search + '#home'); location.reload() }
   HO.demoAction = async function (act) {
     try {
-      if (act === 'demoStop') { await HO.api('demo/stop', { method: 'POST' }); location.hash = 'home'; location.reload() }
+      if (act === 'demoStop') { await HO.api('demo/stop', { method: 'POST' }); reloadHome() }
       if (act === 'demoReset' && await HO.confirm('Alles, was du in der Demo geändert hast, geht verloren.', { title: 'Demo zurücksetzen?', ok: 'Zurücksetzen' })) {
         await HO.api('demo/reset', { method: 'POST' })
         HO.toast('Demo-Wohnung neu eingerichtet', 'ok')
@@ -104,8 +108,7 @@
   HO.startDemo = async function () {
     try {
       await HO.api('demo/start', { method: 'POST' })
-      location.hash = 'home'
-      location.reload()
+      reloadHome()
     } catch (err) { HO.toast(err.message, 'bad', 5000) }
   }
 

@@ -56,6 +56,8 @@ Ein Gerät gehört zu dem Raum, in dem es steht. Mit Home Base schreibt ComfyOS 
 
 ## Was der Grundriss zeigt
 
+![Grundriss der Demo-Wohnung mit Heatmap: Heizkörper leuchten nach gemessener Temperatur, draußen Regen und Wind](../heatmap.png)
+
 - **Zustände:** an/aus, offen, kein Kontakt, Batterie schwach, Gerätefehler, Alarm, gesperrt.
 - **Temperaturen:** Name und Durchschnitt stehen in jedem Raum.
 - **Heatmap:** Heizkörper leuchten nach gemessener Temperatur. Die Skala reicht vom niedrigsten bis zum höchsten Wert deines Heizplans. Ein offenes Fenster drängt die Wärme mit pulsierender kalter Luft zurück.

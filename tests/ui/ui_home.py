@@ -63,13 +63,17 @@ def warn_handler(req):
 
 weather._client = lambda timeout=6.0: httpx.AsyncClient(transport=httpx.MockTransport(wx_handler))
 weather._warn_client = lambda timeout=6.0: httpx.AsyncClient(transport=httpx.MockTransport(warn_handler))
-# small house in the middle of a large area: there is room for effects outside
+# small house in the middle of a large area: there is room for effects outside. Two windows without contacts (since
+# 0.30.1 – the checks of the window light need a window): one to the north, one to the south – the sun of the preview
+# "day" (south-west) and the moon of the preview "night" (south-south-east) lay their patch behind the southern one.
 floorplan_store.save({"width": 24, "height": 14, "address": "Musterstraße 1, 10115 Berlin",
                       "walls": [{"id": "w1", "pts": [[7, 3], [17, 3], [17, 11], [7, 11], [7, 3]]},
                                 {"id": "w2", "pts": [[12, 3], [12, 11]]}],
                       "rooms": [{"id": "r1", "name": "Küche", "room_id": "kueche", "x": 9.5, "y": 7},
                                 {"id": "r2", "name": "Wohnzimmer", "room_id": "wohnen", "x": 14.5, "y": 7}],
-                      "openings": [], "devices": {}})
+                      "openings": [{"id": "ow1", "type": "window", "a": [8, 3], "b": [11, 3], "side": 1, "device_id": None},
+                                   {"id": "ow2", "type": "window", "a": [13, 11], "b": [16, 11], "side": -1, "device_id": None}],
+                      "devices": {}})
 
 from playwright.sync_api import sync_playwright  # noqa: E402
 

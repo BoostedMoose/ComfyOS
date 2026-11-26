@@ -7,15 +7,22 @@ the path of the test environment is in CLAUDE.md and dev/README.md, section Test
 The app runs in its own temp directories (test world tests/support/world_demo.py). Two sessions look at it:
 
   * a session in the demo home (demo.py, demo_world.py – the same sample flat a user sees under System → Demo-Wohnung
-    ansehen; its weather is a fixed sample with rain in a fresh wind). The position of the sun is set to "day"
-    (HO.state.fxTime), so that shadows and effects look the same at every time of day.
-      screenshot.png – home page, classic view: the main tile with floor plan, heat map and weather effects
+    ansehen). The home is set to an evening (`cosy`): the scene "Polarlicht" in the living room (blue, violet and a warm
+    floor lamp next to the pink night light, the warm bedside lamp and the cool kitchen light), kitchen, bedside and
+    hallway lamps on, the speaker in the living room playing – so the floor plan shows the light of the lamps in their
+    colours and the sound waves (button "Effekte"). Weather and time of day are previews of the effects (HO.state.fxPreview,
+    HO.state.fxTime – the same switches as `#home?fx=rain&time=night`), so every picture looks the same at every time
+    of day: HERO_FX/HERO_TIME (rain at night – the lamps stand out most against the dark surroundings) for the pictures
+    with the lamps, "day" with the demo's own weather for the heat map.
+      screenshot.png – home page, classic view: the floor plan with lamp light, sound waves and the weather around the
+                       house (the heat map is off here – it has its own picture)
+      heatmap.png    – the floor plan tile with the heat map (lamp light and sound off, so the warmth stands alone)
       widgets.png    – widget view of the home page
       editor.png     – floor plan editor
       light.png      – light setting of the living room (lamps, scenes, effects)
       scenes.png     – page "Szenen" (scene library)
       heating.png    – heating plan
-      mobile.png     – home page on a phone
+      mobile.png     – home page on a phone (like screenshot.png, device names off)
   * a session of the test world itself (Home Base and Hue Bridge as mocks), because the demo refuses flow test runs and
     shows no real plugins:
       flow.png       – flow editor with a flow of eleven nodes in the middle of a test run: the path glows, the
@@ -42,7 +49,10 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 PORT = 8771
 WIDE = {"width": 1440, "height": 900}
 PHONE = {"width": 390, "height": 844}
+HERO_FX, HERO_TIME = "rain", "night"            # weather preview and time of day of the pictures with the lamps
 SIDEBAR_JS = "() => { const s = document.querySelector('.sidebar'); return s ? Math.ceil(s.getBoundingClientRect().right) : 0 }"
+HOME_CARD_BOTTOM_JS = """() => { const c = document.querySelector('.home-card')
+  return c ? c.getBoundingClientRect().bottom + scrollY + 24 : 1300 }"""
 
 
 def shot(name: str) -> str:
@@ -50,16 +60,35 @@ def shot(name: str) -> str:
     return str(OUT.with_name(name))
 
 
-def classic_home(page) -> None:
-    """Open the classic home page and wait until floor plan, heat map, daylight shadow and weather effects are drawn."""
+def cosy(api) -> None:
+    """Set the demo home to an evening: the scene "Polarlicht" in the living room, three more lamps on in their white
+    tones, the speaker in the living room a little louder (sound waves). `api` is a signed-in client in the demo."""
+    applied = api.post("/api/scenes/polarlicht/apply", json={"room_ids": ["wohnen"]})
+    assert applied.status_code == 200, applied.text
+    for dev, state in (("kueche", {"on": True}), ("nachttisch", {"on": True}), ("flurlicht", {"on": True}),
+                       ("lautsprecher", {"volume": 32})):
+        r = api.post(f"/api/devices/demo:{dev}/command", json={"state": state})
+        assert r.status_code == 200, (dev, r.text)
+
+
+def classic_home(page, fx=HERO_FX, tm=HERO_TIME, effects=True, heat=False) -> None:
+    """Open the classic home page with a weather preview (`fx`, None = the demo's own weather) at the time of day `tm`,
+    switch the heat map with its button (the plan of the demo lies in data/demo/ – the real one stays untouched) and
+    wait until floor plan, shadow and weather effects are drawn – with `effects` also until a lamp shines."""
     page.goto(BASE + "/#home")
     page.wait_for_selector(".room-card .rc-head", timeout=20000)
-    page.evaluate("() => { HO.state.fxTime = 'day'; HO.go('home', true) }")   # shadows as by day, whenever the picture is taken
-    page.wait_for_selector("#fpHost .fp-heat", timeout=15000)
-    page.wait_for_selector("#fpHost .fp-shadow:not(.night)", timeout=15000)
+    page.evaluate("([fx, tm, on]) => { localStorage.setItem('ho.fpEffects', on ? '1' : '0'); HO.state.fxPreview = fx; HO.state.fxTime = tm; HO.go('home', true) }",
+                  [fx, tm, effects])
+    page.wait_for_selector("#fpHost .fp-shadow", timeout=15000)
+    button = page.locator('[data-act="fpHeat"]')
+    if (button.get_attribute("aria-pressed") == "true") != heat:
+        button.click()
+    page.wait_for_selector("#fpHost .fp-heat", timeout=15000, state="visible" if heat else "detached")
     page.wait_for_function("() => !!(HO.state.weather && HO.state.weather.data && HO.state.weather.data.fx)")   # as a function: the CSP allows no eval
     page.wait_for_selector("#fpHost canvas.fp-fx", timeout=15000)
-    page.wait_for_timeout(4500)   # rain, ripples and wind lines are under way
+    if effects:
+        page.wait_for_function("() => HO.weatherFx.stats.lamps >= 1", timeout=10000)   # the lamps shine
+    page.wait_for_timeout(5000)   # rain, ripples, wind lines and sound waves are under way, the lamp light has eased in
 
 
 server = uvicorn.Server(uvicorn.Config(main.app, host="127.0.0.1", port=PORT, log_level="warning"))
@@ -75,12 +104,11 @@ assert api.post("/api/plugins/hue/pair", json={"host": "192.0.2.10"}).json().get
 api.post("/api/scenes/abendrot/apply", json={"room_ids": ["wohnen"]})
 api.post(f"/api/devices/{WEISS}/command", json={"state": {"on": False}})   # all states visible: one lamp off
 
-# the demo home for the second session: sample flat, a scene in the living room
+# the demo home for the second session: sample flat on an evening
 demo_api = httpx.Client(base_url=BASE, cookies={auth.COOKIE: demo_token}, timeout=15)
 started = demo_api.post("/api/demo/start")
 assert started.status_code == 200 and started.json().get("active"), started.text
-applied = demo_api.post("/api/scenes/abendrot/apply", json={"room_ids": ["wohnen"]})
-assert applied.status_code == 200, applied.text
+cosy(demo_api)
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -91,9 +119,8 @@ with sync_playwright() as p:
     page = ctx.new_page()
     classic_home(page)
     left = page.evaluate(SIDEBAR_JS)
-    # down to the end of the main tile: floor plan with heat map and weather, address, consumption, home/away
-    bottom = page.evaluate("""() => { const c = document.querySelector('.home-card')
-      return c ? c.getBoundingClientRect().bottom + scrollY + 24 : 1300 }""")
+    # down to the end of the main tile: floor plan with lamp light and weather, address, consumption, home/away
+    bottom = page.evaluate(HOME_CARD_BOTTOM_JS)
     page.screenshot(path=shot("screenshot.png"), full_page=True, clip={"x": left, "y": 0, "width": WIDE["width"] - left, "height": bottom})
     print("home ok", left, bottom)
 
@@ -126,6 +153,17 @@ with sync_playwright() as p:
     page.click('#viewBar [data-homeview="classic"]')
     page.wait_for_timeout(800)
     print("widgets ok")
+
+    # the heat map by day in the demo's own weather, without lamp light and sound: the floor plan tile from its head
+    # (button "Heatmap" active) to the end of the plan; afterwards the heat map is off again for the phone
+    classic_home(page, fx=None, tm="day", effects=False, heat=True)
+    card = page.evaluate("""() => { const c = document.querySelector('.home-card').getBoundingClientRect(), f = document.querySelector('#fpHost').getBoundingClientRect()
+      return {x: c.left, y: c.top + scrollY, w: c.width, h: f.bottom - c.top} }""")
+    page.screenshot(path=shot("heatmap.png"), full_page=True,
+                    clip={"x": card["x"] - 16, "y": max(0, card["y"] - 16), "width": card["w"] + 32, "height": card["h"] + 32})
+    page.click('[data-act="fpHeat"]')
+    page.wait_for_selector("#fpHost .fp-heat", timeout=15000, state="detached")
+    print("heatmap ok", card)
 
     # scenes and the weekly plan of the heating (the history above it is empty in the demo: it records nothing)
     page.evaluate("HO.go('light')")

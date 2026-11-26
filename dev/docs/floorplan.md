@@ -4,6 +4,17 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30.1 – fainter halo, stronger lamp light
+
+- **Light of the lamps retuned (wish of the operator: the bright rim at the bubble read as a second lamp while the glow
+  in the room was hardly there):** `weather_fx.LAMP_HALO` 0.42 → 0.16 (the ring along the outline, `haloOf`),
+  `LAMP_LIGHT` 0.34 → 0.52 (the spreading light, its cap 0.5 → 0.7). Width, easing and the daylight factor are unchanged;
+  `stats.lamps` still counts the lamps with a halo.
+- **Pictures for README and wiki** (`tools/readme_screenshot.py`): the home page shows the lamps (scene "Polarlicht" in the
+  living room, three more lamps on, the speaker playing) in a preview night with rain, the heat map off; the heat map has a
+  picture of its own (`docs/heatmap.png`, wiki "Grundriss") by day without lamp light. Previews set through
+  `HO.state.fxPreview`/`fxTime`, as the owner's `#home?fx=rain&time=night` does.
+
 ## Since 0.30 – stars only in reflections, finer frost with a sky mirror, multicolour lamps, calmer frames
 
 - **Stars only in reflections (wish of the operator):** the stars – and the rare shooting star – no longer stand in

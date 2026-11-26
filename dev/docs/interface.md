@@ -121,6 +121,15 @@ when something was added.
 - **Tile "Externe Verbindungen":** the dot is green for an active service and grey otherwise – "only on demand" is no longer
   yellow (`EGRESS_DOT` in `settings.js`).
 
+## Since 0.30.1
+
+- **Into and out of the demo without a stray request:** `HO.startDemo` and `HO.demoAction('demoStop')` reload on the home page
+  through `history.replaceState(…, '#home')` + `location.reload()` (`app.js` `reloadHome`). Up to 0.30.0 they assigned
+  `location.hash` first: the old page still rendered the home page and kicked the heating sync (`POST /api/sync`) against a
+  server that had already switched the session – a 403 in the console (`ui_system` counts console errors). `HO.kickSync()` is
+  a no-op in the demo (`HO.demo.active`, resolves `{}`): the demo has no heating sync, the server would refuse the request.
+  Rule: a page change that follows a server-side switch of the session reloads straight away, it does not route first.
+
 ## Since 0.23.1
 
 - **Demo in the page title instead of a bar:** in the demo every page title ends in "– DEMO" (`HO.demoTitle()` in `HO.go` and in

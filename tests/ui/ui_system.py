@@ -478,11 +478,13 @@ def run(p, engine, name, **ctx_args):
     # demo home: open it from the tab "Einstellungen" and leave it with "Demo beenden" (since 0.29.2 – before, the click
     # handler of the page replaced the one of the demo tile and the button did nothing)
     def demo_is(active):
-        """Wait until the server says this session is (not) in the demo – across the reload the buttons start."""
+        """Wait until the page itself knows that this session is (not) in the demo. The buttons reload the page, and only
+        the freshly booted page reads the state (HO.refreshDemo) – asking the server would answer before the reload and
+        the next navigation of the test would race with it."""
         deadline = time.time() + 10
         while time.time() < deadline:
             try:
-                if page.evaluate("async () => (await HO.api('demo')).active") is active:
+                if page.evaluate("() => !!(HO.demo && HO.demo.active)") is active:
                     return True
             except Exception:
                 pass                     # the page is just reloading: ask again

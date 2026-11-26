@@ -752,6 +752,7 @@ window.HO = window.HO || {};
      other side would keep one more connection busy with every page change. */
   let syncKick = null
   HO.kickSync = () => {
+    if (HO.demo && HO.demo.active) return Promise.resolve({})   // the demo has no heating sync – the server refuses the request (403)
     if (!syncKick) {
       syncKick = HO.api('sync', { method: 'POST' })
       const done = () => { syncKick = null }
