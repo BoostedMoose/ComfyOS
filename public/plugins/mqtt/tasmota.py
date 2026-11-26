@@ -37,7 +37,7 @@ from plugin_api import STATE_BRIGHTNESS, STATE_ON, STATE_POSITION, Capability, P
 
 from . import protocol
 from .discovery import Announcement, DeviceInfo, Entity, StateRequest
-from .translate import LampTranslator, Outgoing, Reading, Translator, to_number, wanted_light
+from .translate import LampTranslator, Outgoing, Reading, SensorTranslator, Translator, to_number, wanted_light
 
 DISCOVERY_FILTERS = ["tasmota/discovery/+/config", "tasmota/discovery/+/sensors"]
 MAX_DEVICES = 300
@@ -49,6 +49,12 @@ VENDOR_TEXT = "Tasmota"
 PLATFORM_RELAY = "tasmota_relay"
 PLATFORM_LIGHT = "tasmota_light"
 PLATFORM_SHUTTER = "tasmota_shutter"
+PLATFORM_ENERGY = "tasmota_energy"
+
+# Action that sets the energy counter of the device itself back to zero ("EnergyTotal 0" – the "Commands" page
+# of the Tasmota documentation). ComfyOS keeps nothing of its own here: the device forgets its total.
+ENERGY_RESET_KEY = "energy_reset"
+ENERGY_RESET_LABEL = "Zählerstand zurücksetzen"
 
 # Kinds of relay in the "rl" list of a config message
 RELAY_SWITCH = 1
@@ -166,7 +172,11 @@ def _sensor_entities(sensors: Mapping[str, Any], info: DeviceInfo, topics: _Devi
                 continue
             config = {**shared, "state_topic": topics.report + "SENSOR", "value_template": _sensor_template(sensor, value),
                       "device_class": device_class, "unit_of_measurement": temperature_unit if device_class == "temperature" else unit}
-            entities.append(Entity(f"{info.identifier}_{sensor}_{value}", "sensor", f"{sensor} {value}", info, config))
+            # the energy total carries the reset action of the device along (EnergyTranslator)
+            platform = PLATFORM_ENERGY if sensor == ENERGY_SENSOR and value == "Total" else "sensor"
+            if platform == PLATFORM_ENERGY:
+                config["command_base"] = topics.command
+            entities.append(Entity(f"{info.identifier}_{sensor}_{value}", platform, f"{sensor} {value}", info, config))
     return entities
 
 
@@ -422,8 +432,32 @@ class ShutterTranslator(Translator):
         return [Outgoing(f"{self._command_base}ShutterPosition{self._index}", str(int(round(100 - position))))]
 
 
+class EnergyTranslator(SensorTranslator):
+    """The energy total of a Tasmota device, plus the action that resets the counter on the device itself.
+
+    The reading comes through the ordinary sensor path (``tele/<topic>/SENSOR``, ENERGY/Total in kWh). The
+    action appears in the device dialog under "Weitere Funktionen" and publishes ``cmnd/<topic>/EnergyTotal 0``
+    – the device then counts from zero again; its next report brings the new total.
+    """
+
+    def __init__(self, entity: Entity) -> None:
+        """Read topic and unit like a sensor; the command topic for the reset comes from ``command_base``."""
+        super().__init__(entity)
+        self._reset_topic = str(self.config["command_base"]) + "EnergyTotal"
+
+    def capabilities(self) -> list[Capability]:
+        """Return the reset action of the device's own energy counter."""
+        return super().capabilities() + [Capability(ENERGY_RESET_KEY, "action", readable=False, writable=True,
+                                                    label=ENERGY_RESET_LABEL)]
+
+    def commands(self, state: Mapping[str, Any]) -> list[Outgoing]:
+        """Return the message that sets the counter to zero when the action is triggered."""
+        return [Outgoing(self._reset_topic, "0")] if state.get(ENERGY_RESET_KEY) else []
+
+
 TRANSLATORS: dict[str, type[Translator]] = {
     PLATFORM_RELAY: RelayTranslator,
     PLATFORM_LIGHT: TasmotaLightTranslator,
     PLATFORM_SHUTTER: ShutterTranslator,
+    PLATFORM_ENERGY: EnergyTranslator,
 }

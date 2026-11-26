@@ -484,6 +484,10 @@
     // The device groups and the rooms of all floors of a stored plan.
     groupsOf: plan => [].concat.apply([], floorsOf(plan).map(f => f.groups || [])),
     roomsOf: plan => [].concat.apply([], floorsOf(plan).map(f => f.rooms || [])),
+    // The loads ("Verbraucher") of all floors, each with the label of its kind and its floor (since 0.30 –
+    // the device dialog says which loads hang on a device).
+    loadsOf: plan => [].concat.apply([], floorsOf(plan).map(f => (f.loads || []).map(l =>
+      Object.assign({}, l, { kind_label: (LOAD_KINDS[l.kind] || LOAD_KINDS.lamp).label, floor_label: f.label })))),
     // Mount the floor plan into an element. opts: plan, devices, rooms, heat/heatRange, weather, camera (full screen with
     // a free camera; with it `embed` and `still` for the floor plan widget), floor (id of the floor shown first),
     // floorNav (buttons in the frame to change the floor) and callbacks (onSave, onDeviceClick, onRoomClick,
@@ -949,12 +953,13 @@
           <div class="fp-title hidden" aria-live="polite"></div>
           <div class="fp-wind hidden" role="img"></div>
           <div class="fp-floornav hidden"></div>
+          <button type="button" class="fp-fxbtn hidden"></button>
           <div class="fp-legend hidden"><span class="fp-lo"></span><i></i><span class="fp-hi"></span></div></div>
         <div class="fp-tray hidden"></div>
         <div class="fp-side hidden"></div>`
       const tools = el.querySelector('.fp-tools'), wrap = el.querySelector('.fp-wrap'),
         svg = el.querySelector('svg'), tip = el.querySelector('.fp-tip'), side = el.querySelector('.fp-side'),
-        trayBox = el.querySelector('.fp-tray'), floorNav = el.querySelector('.fp-floornav')
+        trayBox = el.querySelector('.fp-tray'), floorNav = el.querySelector('.fp-floornav'), fxBtn = el.querySelector('.fp-fxbtn')
       // the buttons of the floor change are no part of the plan: neither a tap on the plan nor the start of a gesture
       floorNav.addEventListener('pointerdown', e => e.stopPropagation())
       floorNav.addEventListener('click', e => {
@@ -962,6 +967,37 @@
         const button = e.target.closest('[data-floorstep]')
         if (button && !button.disabled) stepFloor(+button.dataset.floorstep)
       })
+      // Right-click while drawing cancels the draft (since 0.30, wish of the operator) – a wall, a stair, an
+      // opening or a deck in the making disappears; without a draft the browser menu stays as it is.
+      wrap.addEventListener('contextmenu', e => {
+        if (st.editing && st.draft) { e.preventDefault(); st.draft = null; render() }
+      })
+      // the effects switch in the frame of the floor plan widget (since 0.30): lamp light and sound waves, the same
+      // preference as the button "Effekte" of the classic home page (ho.fpEffects)
+      fxBtn.addEventListener('pointerdown', e => e.stopPropagation())
+      fxBtn.addEventListener('click', e => {
+        e.stopPropagation()
+        st.effects = !st.effects
+        writePref(EFFECTS_PREF, st.effects)
+        renderEffectsBtn()
+        syncFx()
+        HO.toast(st.effects ? 'Effekte an' : 'Effekte aus')
+      })
+      // Show the switch only as a widget – the classic view and the full screen have buttons of their own
+      // (same condition as there: the effects module is loaded). Written only on a change.
+      function renderEffectsBtn() {
+        const show = !!(cam && opts.embed) && !st.editing && !!HO.weatherFx
+        const key = show ? (st.effects ? 'on' : 'off') : ''
+        if (key === st.fxBtnKey) return
+        st.fxBtnKey = key
+        fxBtn.classList.toggle('hidden', !show)
+        if (!show) return
+        const label = 'Effekte der Geräte: Licht der Lampen und Schallwellen der Lautsprecher'
+        fxBtn.classList.toggle('on', st.effects)
+        fxBtn.setAttribute('aria-pressed', st.effects ? 'true' : 'false')
+        fxBtn.setAttribute('title', label); fxBtn.setAttribute('aria-label', label)
+        fxBtn.innerHTML = HO.icon('sparkle', 'sm')
+      }
 
       /* ---------- Display */
       // Write an attribute only if it changes – even writing the same value can trigger a repaint
@@ -1794,6 +1830,7 @@
         }
         renderTitle()
         renderFloorNav()
+        renderEffectsBtn()
         syncFx()
       }
       // Buttons in the frame to change the floor (opts.floorNav: floor plan widget) – only with several floors, never in
@@ -1890,7 +1927,9 @@
           const room = roomOf([pos.x, pos.y]), box = symbolBox(pos, u)
           if (room < 0) continue
           const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round, key: pos.furniture, m: box.m, ax: box.ax, ay: box.ay } : { r: R }
-          lamps.push({ id, x: pos.x, y: pos.y, room, shape, colors, level: level(d), effect: effectOf(d) })
+          // gmode (since 0.30): how a gradient strip lays its colours out – the light follows it (weather_fx.paint)
+          lamps.push({ id, x: pos.x, y: pos.y, room, shape, colors, level: level(d), effect: effectOf(d),
+            gmode: (d.light && d.light.gmode) || null })
         }
         for (const g of own ? st.plan.groups : []) {
           const members = g.members.map(id => db[id]).filter(d => shine(d).length), room = roomOf([g.x, g.y])
@@ -2035,17 +2074,29 @@
           x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
         }
         if (x1 < 0) return null
-        const cv = document.createElement('canvas'), w0 = x1 - x0 + 1, h0 = y1 - y0 + 1
+        /* Since 0.30 the image is laid out finer than the grid (SS subpixels per cell): the path distance is read
+           bilinearly between the cells and only then turned into opacity. One pixel per cell left visible steps in
+           the light – it read as dithering around every lamp (wish of the operator: a smooth fade). Computed once
+           per layout and cached as before; on economical devices a little coarser. */
+        const SS = HO.perf.low ? 2 : 3
+        const cv = document.createElement('canvas'), w0 = (x1 - x0 + 1) * SS, h0 = (y1 - y0 + 1) * SS
         cv.width = w0; cv.height = h0
         const ctx = cv.getContext('2d'), img = ctx.createImageData(w0, h0)
-        for (let y = 0; y < h0; y++) for (let x = 0; x < w0; x++) {
-          const far = lit[(y + y0) * gw + x + x0], at = (y * w0 + x) * 4
-          img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
-          const end = 1 - (far / reach) * (far / reach)
-          img.data[at + 3] = far < reach ? Math.round(255 * end * end / (1 + (far / half) * (far / half))) : 0
+        const sample = (gx, gy) => Math.min(lit[clamp(gy, 0, gh - 1) * gw + clamp(gx, 0, gw - 1)], reach)
+        for (let y = 0; y < h0; y++) {
+          const gy = y0 + (y + 0.5) / SS - 0.5, j = Math.floor(gy), fy = gy - j
+          for (let x = 0; x < w0; x++) {
+            const gx = x0 + (x + 0.5) / SS - 0.5, i = Math.floor(gx), fx = gx - i
+            const far = (sample(i, j) * (1 - fx) + sample(i + 1, j) * fx) * (1 - fy)
+              + (sample(i, j + 1) * (1 - fx) + sample(i + 1, j + 1) * fx) * fy
+            const at = (y * w0 + x) * 4
+            img.data[at] = img.data[at + 1] = img.data[at + 2] = 255
+            const end = 1 - (far / reach) * (far / reach)
+            img.data[at + 3] = far < reach ? Math.round(255 * end * end / (1 + (far / half) * (far / half))) : 0
+          }
         }
         ctx.putImageData(img, 0, 0)
-        return { img: cv, x: x0 * cs, y: y0 * cs, w: w0 * cs, h: h0 * cs }
+        return { img: cv, x: x0 * cs, y: y0 * cs, w: (x1 - x0 + 1) * cs, h: (y1 - y0 + 1) * cs }
       }
       // The light of every window: from the inner side of the glass.
       function lightFields(windows, doors, polys) {
@@ -3511,6 +3562,7 @@
           if (data.rooms) st.rooms = data.rooms
           if (data.heatRange !== undefined) st.heatRange = data.heatRange || null
           if (data.plan && !st.editing) openPlan(data.plan)
+          st.effects = readPref(EFFECTS_PREF, true)   // another view may have switched the effects (since 0.30)
           if (!st.drag) render()
         },
         setEditing(on) {
@@ -3540,6 +3592,9 @@
         highlight(id) { if (st.hl !== (id || null)) { st.hl = id || null; if (!id) st.focus = null; renderSVG() } },
         // take a device out of a group (view): save at once, so that a reload does not overwrite the change
         ungroup(gid, id) { ungroup(gid, id); render(); if (opts.onSave) opts.onSave(st.plan) },
+        // undo the last editor step from outside (since 0.30: "Abbrechen" in the naming dialog of a freshly
+        // drawn room removes it again – the step that created it is taken back)
+        undo() { doUndo() },
         get camera() { return cam ? { s: cam.s, fit: cam.fit, cx: cam.cx, cy: cam.cy } : null },
         toggleNames() { st.plan.show_names = !st.plan.show_names; save(); render() },
         // weather effects on/off (button "Wetter" above the floor plan) – the same setting as in the editor; saved at once,
@@ -3548,7 +3603,7 @@
         // effects of the devices on/off (button "Effekte", since 0.28): light of the lamps and sound waves of the
         // speakers – remembered per browser (`ho.fpEffects`), nothing is saved in the plan
         get effects() { return st.effects },
-        toggleEffects() { st.effects = !st.effects; writePref(EFFECTS_PREF, st.effects); syncFx(); return st.effects },
+        toggleEffects() { st.effects = !st.effects; writePref(EFFECTS_PREF, st.effects); renderEffectsBtn(); syncFx(); return st.effects },
         resize() { render() },
         startWithAutoRooms() { st.editing = true; autoRooms(); autoPlace(); save(); render() },
         // weather of the home page (fx from /api/weather) – weather effects and building shadows follow

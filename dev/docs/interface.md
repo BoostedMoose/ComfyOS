@@ -4,6 +4,32 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30
+
+- **Room dialog of the floor plan with all controls (wish of the operator):** `overview.js roomSheet` builds the
+  dialog like the room card of the classic view – Ist/Soll, the room light switch, the brightness slider, the scene
+  chips, the lamps as `HO.lights.lampRowHTML` (with their switches) and the other devices as `tileHTML` tiles. The
+  sheet lies outside the page, so its clicks are handled in the sheet itself (data-room-lights, data-lt-toggle/-open,
+  data-cmd toggle/cover/delta, data-dev, data-room-bri; media buttons through `HO.media.handle`); after every command
+  the body is rebuilt (`HO.setHTML`). Scene chips keep working through the document handler of `lights.js`.
+- **Device dialog names its loads:** a device that carries a load of the floor plan ("Verbraucher",
+  `HO.floorplan.loadsOf` – new helper, all floors with `kind_label` and `floor_label`) shows a notice with the link
+  icon: the load shines or runs while the device is on. With several floors the floor is named.
+- **Effects switch in the floor plan widget (`.fp-fxbtn`):** a bubble bottom left in the frame (like `.fp-floornav`),
+  only as a widget (`camera` + `embed`) – the classic view and the full screen keep their own buttons. It switches the
+  same browser preference `ho.fpEffects`; `fp.update()` re-reads the preference, so every mounted plan follows the
+  switch of any other with the next live message. Checked by `ui_widgets`.
+- **"Abbrechen" when a room was drawn:** the naming dialog (`newPlanRoom`) offers it; it calls the new `fp.undo()`
+  (the editor step that created the room is taken back). While drawing, a right click cancels the draft
+  (`contextmenu` on the frame, only with an open draft – otherwise the browser menu stays).
+- **Raumverwaltung without a hub:** the delete button is disabled and explains that a room without a hub is its
+  walls and is deleted in the floor plan editor (the route needs a hub; before, the click only produced an error).
+- **Deleting a room warns about dangling references:** before the confirmation the dialog collects what still
+  points at the room – scenes (`overview.scenes`), flows and heating routines (fetched, searched for the quoted
+  room id in their JSON) and widgets (`opts.room`/`opts.rooms`) – and names them: those references lose their
+  target and fail quietly (the geometry of the room stays in the plan and is only unlinked, see `api/rooms.py`).
+  If a list cannot be fetched, the hint is just shorter.
+
 ## Since 0.24.5
 
 - **Nothing makes the page wider than the window:** `html { overflow-x: hidden }` (only on html – on body as well, body would

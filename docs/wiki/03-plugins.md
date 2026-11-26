@@ -54,7 +54,7 @@ ComfyOS meldet sich als Client am Broker an und findet Geräte auf drei Wegen vo
 
 Geräte ohne Discovery (Shelly, eigene Skripte) legst du mit **Eigenes Gerät anlegen** über ihre Topics an.
 
-**Gut zu wissen:** Fernbedienungen von Zigbee2MQTT sind Taster und starten Flows. Schlösser, Betriebsarten und einstellbare Zahlen stehen im Gerätedialog unter „Weitere Funktionen“. Vorlagen aus Discovery-Nachrichten werden nie ausgeführt – was ComfyOS nicht lesen kann, steht als „Nicht unterstützt“ in der Kachel.
+**Gut zu wissen:** Fernbedienungen von Zigbee2MQTT sind Taster und starten Flows. Schlösser, Betriebsarten und einstellbare Zahlen stehen im Gerätedialog unter „Weitere Funktionen“ – bei Tasmota-Steckdosen mit Strommessung auch **Zählerstand zurücksetzen**, das den Zähler auf dem Gerät selbst auf null setzt. Vorlagen aus Discovery-Nachrichten werden nie ausgeführt – was ComfyOS nicht lesen kann, steht als „Nicht unterstützt“ in der Kachel.
 
 ## Matter (Alexa, Apple Home, Google Home)
 

@@ -4,6 +4,41 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30 – stars only in reflections, finer frost with a sky mirror, multicolour lamps, calmer frames
+
+- **Stars only in reflections (wish of the operator):** the stars – and the rare shooting star – no longer stand in
+  the sky above the plan. They show where something mirrors: in the puddles (drawn inside the clip of each puddle,
+  the twinkle and the places as before, scaled by the puddle's opacity) and in the hoarfrost. Seeding is unchanged
+  (`stars` follow the clear sky and move with the plan); `animated()` counts them only while a reflecting surface is
+  there. The shooting star is laid out once per frame (`shooting`) and drawn into every puddle it crosses.
+- **Hoarfrost smaller and finer, with a faint sky mirror (wish of the operator):** patches at radius 1.2…2.4 instead
+  of 2…3.8 (and more of them, `per` 7), thinner scratches, smaller splats and speckle (`rime`). `rime` returns
+  `{img, mask}` now; the frame lays a mirror into each patch (`glaze` scratch canvas: the drifting cloud pattern of
+  the puddles – one `mirror()` pattern and one drift for all surfaces – plus the stars at night, cut to the patch
+  by `destination-in` with its mask). Far subtler than a puddle (`FROST_MIRROR`, `FROST_MIRROR_CLOUD`); skipped on
+  economical devices and from self-regulation step 2 (`icy`).
+- **Multicolour lamps (wish of the operator – "nicht nur eine Stellvertreterfarbe"):** the lamp light follows the
+  gradient mode of a strip: `indoorNow` hands over `gmode` (`d.light.gmode`), `weather_fx.paint` draws
+  `random_pixelated`/`segmented_palette` as hard colour bands (the strip really shows its colours side by side) and
+  `interpolated_palette_mirrored` out and back; everything else blends as before. With a running effect every colour
+  of a multicolour lamp flickers with a phase of its own (`segment`, quantised to twentieths so the tinted images
+  are rebuilt rarely) – a light bar plays candle or sparkle along its length instead of breathing as one.
+- **Smooth fade of the light (the operator saw dithering around the lamps):** `spreadFrom` lays the glow image out
+  finer than the path grid (`SS` subpixels per cell, 3, economical devices 2): the path distance is read bilinearly
+  between the cells and only then becomes opacity – one pixel per cell left visible steps. Computed once per layout
+  and cached as before; window glow and lamp light share it. The halo (`weather_fx.haloOf`) is one single ring along
+  the outline now (wish of the operator) – before, a stack of six rings faded outwards and its steps showed.
+- **Calmer frames (the operator found the view laggy; browser numbers from `dev/measure.py frontend` are pending):**
+  - `follow()` draws at the pace of the current step instead of once per pointer move – during a pan the full
+    drawing ran at pointer rate (60–120/s) since the inside layer made it expensive.
+  - a calm single image is repainted only when something it shows changed (`sigOf`/`calmSig` in `update()`:
+    seeded weather, size, colours, sun and moon rounded, windows, lamps, speakers, bubbles/symbols) – before,
+    every live message of the home page redrew the whole canvas every few seconds; hidden or out of sight nothing
+    is painted at all (the observers kick a repaint when it comes back).
+- **Tests:** `ui_home` (stars no longer asserted in the sky; everything else unchanged), `ui_widgets` (effects
+  switch in the widget frame). The reference images of `ui_visual` change (night without stars) and are renewed on
+  Windows.
+
 ## Since 0.29.1 – loads in any colour, bubbles with a symbol of their own, docked dots along their element
 
 - **Light of a load like a lamp (wish of the operator):** a light among the loads shines in a white tone or in a colour

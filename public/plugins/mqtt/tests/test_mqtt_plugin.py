@@ -738,7 +738,7 @@ assert found_devices.handle_message(TASMOTA_SENSORS_TOPIC, json.dumps(TASMOTA_SE
 announced = found_devices.handle_message(TASMOTA_CONFIG_TOPIC, json.dumps(TASMOTA_CONFIG).encode())
 assert [(found.platform, found.name) for found in announced.entities] == [
     ("tasmota_light", ""), ("tasmota_relay", "Abzug"), ("sensor", "AM2301 Temperature"), ("sensor", "AM2301 Humidity"),
-    ("sensor", "ENERGY Power"), ("sensor", "ENERGY Total")]
+    ("sensor", "ENERGY Power"), ("tasmota_energy", "ENERGY Total")]
 assert announced.state_requests == (discovery.StateRequest("tasmota_AABBCCDDEEFF", "cmnd/kueche/STATE"),) and not announced.is_fallback
 assert found_devices.handle_message("homeassistant/switch/x/config", b"{}") is None
 assert found_devices.handle_message(TASMOTA_CONFIG_TOPIC, b"[1]") is None and found_devices.handle_message(TASMOTA_CONFIG_TOPIC, b"{nope") is None
@@ -761,6 +761,15 @@ assert registry.handle_message("tele/kueche/SENSOR", '{"AM2301": {"Temperature":
     kitchen.id: {"temperature": 22.4, "humidity": 51.0, "power_w": 14.0}}
 assert next(device for device in registry.devices(broker_connected=True) if device.id == kitchen.id).energy_kwh == 3.25
 tracked_kitchen, tracked_hood = registry.find(kitchen.id), registry.find(hood.id)
+# the reset of the device's own energy counter (since 1.3.0): labelled action, command "EnergyTotal 0"
+reset_cap = next(c for c in registry._device(tracked_kitchen, True).capabilities if c.key == tasmota.ENERGY_RESET_KEY)
+assert reset_cap.type == "action" and reset_cap.writable and reset_cap.label == tasmota.ENERGY_RESET_LABEL
+assert sent(registry.commands(tracked_kitchen, {tasmota.ENERGY_RESET_KEY: True})) == [("cmnd/kueche/EnergyTotal", "0")]
+try:
+    registry.commands(tracked_hood, {tasmota.ENERGY_RESET_KEY: True})
+    raise AssertionError("only the metering device resets its counter")
+except PluginError:
+    pass
 assert sent(registry.commands(tracked_kitchen, {"on": True, "brightness": 40})) == [("cmnd/kueche/Dimmer", "40")]
 assert sent(registry.commands(tracked_kitchen, {"on": False})) == [("cmnd/kueche/POWER1", "OFF")]
 assert sent(registry.commands(tracked_kitchen, {"brightness": 0})) == [("cmnd/kueche/POWER1", "OFF")]
@@ -785,8 +794,8 @@ assert shutter.kind == "cover" and shutter.read("stat/rollo/RESULT", '{"Shutter1
 assert sent(shutter.commands({"cover": "up"})) == [("cmnd/rollo/ShutterOpen1", "")] and sent(shutter.commands({"cover": "stop"})) == [("cmnd/rollo/ShutterStop1", "")]
 assert sent(shutter.commands({"position": 25})) == [("cmnd/rollo/ShutterPosition1", "75")] and refuses(shutter, {"position": 140})
 assert found_devices.handle_message(TASMOTA_CONFIG_TOPIC, b"").entities == (), "an empty config message removes the device"
-print("10 Tasmota discovery: relays, light (dimmer, white tone, colour), shutter, sensors, availability, state request, "
-      "single relay without a number, unusable topics refused, removal")
+print("10 Tasmota discovery: relays, light (dimmer, white tone, colour), shutter, sensors, energy reset on the device, "
+      "availability, state request, single relay without a number, unusable topics refused, removal")
 
 
 # ---------------------------------------------------------------------------

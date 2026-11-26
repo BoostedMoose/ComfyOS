@@ -49,7 +49,7 @@ Devices without discovery: **Eigenes Gerät anlegen** – name, kind, state topi
 - **Flows, scenes and voice assistants** only know the well-known values of a device (on, brightness, temperature …). "Weitere Funktionen" are operated in the device sheet.
 - **Multi-gang sockets:** the first switch belongs to the device, every further one appears as a device of its own with the name of the channel.
 - **Settings of a device** (child lock, signal strength, firmware update) are not shown.
-- **Tasmota:** relays, the light (dimmer, white tone, colour), shutters and the sensors temperature, humidity, power and energy are read. Lights with separate channels (`SetOption68 1`) can only be switched on and off.
+- **Tasmota:** relays, the light (dimmer, white tone, colour), shutters and the sensors temperature, humidity, power and energy are read. Lights with separate channels (`SetOption68 1`) can only be switched on and off. A device that counts energy offers "Zählerstand zurücksetzen" under "Weitere Funktionen": that publishes `EnergyTotal 0` and the device itself counts from zero again (since 1.3.0).
 - **Broker unreachable:** known devices stay visible and show "Kein Kontakt"; ComfyOS reconnects by itself (1 s … 60 s).
 - ComfyOS publishes `comfyos/status` = `online` / `offline` (as its last will), so that others see whether it is connected.
 

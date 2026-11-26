@@ -138,6 +138,20 @@ script (`stats.drawMs`, of it the inside layer `stats.indoorMs`) – the next me
 | halo of a lamp as a ready image | six wide strokes per lamp and frame while rain or wind animate |
 | light of a lamp needs no frame | static lamp light is a still image; frames only while a change eases or a light effect runs (calm pace) |
 
+### 0.30 – fewer frames that change nothing
+
+The operator found the view "sehr laggy". As with 0.28 this pass was made on the Pi by reading the drawing path;
+the numbers come with the next `dev/measure.py frontend` run on Windows (before: `git worktree add` with `v0.29.2`,
+after: this state – look at `stats.drawMs`/`indoorMs`, the frame rate while panning and the CPU share of an idle
+open home page).
+
+| Change | Why it costs less |
+|---|---|
+| `follow()` draws at the pace of the step, not per pointer move | during a pan the full drawing (weather + inside layer) ran at pointer rate, 60–120 per second – twice to four times the frames anyone can see at the 30 frames/s cap |
+| a calm single image repaints only on a change (`sigOf`) | the home page reports fresh devices every few seconds; `update()` redrew the whole canvas each time, even when the picture was identical – now a signature of everything the image shows decides |
+| hidden or out of sight: no painting at all in `update()` | the observers (visibility, intersection) kick one repaint when the canvas comes back |
+| stars no longer animate the sky | a clear night only runs while something mirrors them (puddles, hoarfrost) – see "stars only in reflections" (0.30) |
+
 ## Helper program of the Matter plugin (0.21)
 
 Measured on 19.11.2026 on the development Pi (Raspberry Pi 5, 8 GB) with Node 24.22.3 and the bundled

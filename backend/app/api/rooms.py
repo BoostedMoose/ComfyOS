@@ -148,7 +148,9 @@ async def api_device_room(device_id: str, body: RoomAssign):
         try:
             rid = await _hub_room_for(target, plan)
             if rid != d.get("hb_room_id"):
-                await hub[1].move_device((d.get("source") or {}).get("device_id") or device_id, rid)
+                # Always the id of the row: a linked row (hub + direct plugin) keeps the hub's id, while
+                # row["source"] names the direct device – the hub would not know that id (device_merge).
+                await hub[1].move_device(device_id, rid)
             room_assign.assign(device_id, None, None, plan)          # the hub is up to date now
         except HTTPException:
             raise
@@ -188,7 +190,8 @@ async def api_rooms_push():
             continue
         try:
             rid = await _hub_room_for(d["room_id"], plan) if str(d["room_id"]).startswith(room_assign.PLAN_PREFIX) else d["room_id"]
-            await hub.move_device((d.get("source") or {}).get("device_id") or d["id"], rid)
+            # the id of the row, never source.device_id – a linked row keeps the hub's id (device_merge)
+            await hub.move_device(d["id"], rid)
             room_assign.assign(d["id"], None, None, plan)
             done["moves"] += 1
         except Exception as exc:

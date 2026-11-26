@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # tests/ – shared scaffolding (support)
 from support.world_hue import (  # noqa: E402 – mocks, app and helpers of the shared test world
-    auth, BR, bridge, core, device_store, hb_writes, HUE, hue, install_homebase, json, LID, LIGHTS, main,
+    auth, BR, bridge, core, device_store, hb_moves, hb_writes, HUE, hue, install_homebase, json, LID, LIGHTS, main,
     MockHB, push_event, THINGS, U)
 from app import settings_store  # noqa: E402
 
@@ -180,6 +180,16 @@ with TestClient(main.app) as client:
     r = ok(client.post("/api/lights", json={"on": True}))
     assert {rid for rid, _ in hue["puts"]} == {U(1), U(9), U(18)} and hb_writes == [("Z_bri", "ON")] and r["switched"] == 4
     print("7 room/all switches: only reachable lamps, plugs excluded")
+
+    # 7b) Room of a linked lamp (since 0.30): the Home Base gets the id of the row – its own Thing-UID – and
+    #     never source.device_id (the id of the direct Hue device, which it does not know; the bug of 0.29.x).
+    hb_moves.clear()
+    r = ok(client.put(f"/api/devices/hue:0210:{BR}:1/room", json={"target": "wohnen"}))
+    assert r.get("warning") is None and hb_moves == [(f"hue:0210:{BR}:1", "wohnen")], (r, hb_moves)
+    assert dev(ok(client.get("/api/devices")), f"hue:0210:{BR}:1")["room_id"] == "wohnen"
+    ok(client.put(f"/api/devices/hue:0210:{BR}:1/room", json={"target": "kueche"}))   # back: later sections expect Küche
+    assert len(hb_moves) == 2 and not any(did.startswith("huebridge:") for did, _ in hb_moves), hb_moves
+    print("7b room of a linked lamp: the Home Base moves it under its Thing-UID, no warning")
 
     # 8) Entfernen / Wiederherstellen
     ok(client.post("/api/devices/remove", json={"device_id": f"hue:0210:{BR}:5"}))

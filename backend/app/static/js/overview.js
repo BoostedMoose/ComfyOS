@@ -1106,8 +1106,15 @@
       ${d.room_pending ? `<span class="hint" style="color:var(--warn)">${HO.esc(hubName())}: noch in „${HO.esc(d.hb_room || 'kein Raum')}" – wird beim nächsten Übertragen nachgezogen.</span>` : ''}
       ${d.local_room && HO.roomHub() ? `<span class="hint">Nur in ComfyOS gespeichert – ${HO.esc(hubName())} kennt dieses Gerät nicht.</span>` : ''}</label>`
     const issues = HO.devIssues(d)
+    // loads of the floor plan that hang on this device (since 0.30): say so – switching the device drives them
+    const loads = HO.floorplan.loadsOf(HO.state.overview.floorplan).filter(l => l.device_id === d.id)
+    const manyFloors = HO.floorplan.floorsOf(HO.state.overview.floorplan).length > 1
+    const loadName = l => `${l.name || l.kind_label}${manyFloors ? ' (' + l.floor_label + ')' : ''}`
+    const loadNote = loads.length ? `<div class="notice" style="margin-bottom:14px">${HO.icon('link', 'sm')}<div>
+      ${loads.length === 1 ? `Der Verbraucher <b>${HO.esc(loadName(loads[0]))}</b> hängt an diesem Gerät – er leuchtet bzw. läuft im Grundriss, solange das Gerät an ist.`
+    : 'Verbraucher an diesem Gerät: ' + loads.map(l => `<b>${HO.esc(loadName(l))}</b>`).join(', ') + ' – sie leuchten bzw. laufen im Grundriss, solange das Gerät an ist.'}</div></div>` : ''
     const s = HO.sheet({ title: d.name, body: `<div class="row" style="margin-bottom:14px"><div class="dev-ic ${HO.devClass(d)}">${HO.icon(d.kind)}</div><div><b>${HO.esc(HO.devState(d))}</b></div></div>
-      ${issues.length ? `<div class="dev-issues">${issues.map(i => `<div class="t-flag ${i.k} wide">${HO.icon(i.k === 'battery' ? 'battery' : i.k === 'offline' ? 'offline' : 'warn', 'sm')}<span>${HO.esc(i.t)}</span>${i.k === 'error' ? `<button class="btn-ack" data-ack-error="${HO.esc(i.t)}" title="Ausblenden">${HO.icon('close', 'sm')}</button>` : ''}</div>`).join('')}</div>` : ''}${ctl}
+      ${issues.length ? `<div class="dev-issues">${issues.map(i => `<div class="t-flag ${i.k} wide">${HO.icon(i.k === 'battery' ? 'battery' : i.k === 'offline' ? 'offline' : 'warn', 'sm')}<span>${HO.esc(i.t)}</span>${i.k === 'error' ? `<button class="btn-ack" data-ack-error="${HO.esc(i.t)}" title="Ausblenden">${HO.icon('close', 'sm')}</button>` : ''}</div>`).join('')}</div>` : ''}${loadNote}${ctl}
       <dl class="kv">${kv.map(([k, v]) => `<dt>${HO.esc(k)}</dt><dd>${HO.esc(v)}</dd>`).join('')}</dl>
       ${vals ? `<details style="margin-top:14px"><summary class="small muted" style="cursor:pointer">Alle Werte</summary><dl class="kv" style="margin-top:10px">${vals}</dl></details>` : ''}
       ${d.link_missing ? '' : `<div class="form-actions" style="border-top:1px solid var(--line);padding-top:14px"><span data-plugin-actions></span><button class="btn sm ghost danger" data-remove="1">${HO.icon('trash', 'sm')} Aus ComfyOS entfernen</button></div>`}` })
@@ -1218,8 +1225,12 @@
     const options = (HO.state.overview.rooms || []).filter(r => r.room_id).sort((a, b) => HO.byName(a.name, b.name))
     const sh = HO.sheet({ title: 'Raum benennen', body: `<p class="small muted">${HO.roomHub() ? `Dieser Raum wird einem vorhandenen Raum (${HO.esc(hubName())}) zugeordnet oder bei Bedarf dort neu angelegt.` : 'Gib dem Raum einen Namen.'} Geräte erzeugen niemals selbst Räume.</p>
       <label class="field"><span>Raumname</span><input type="text" id="newPlanRoomName" list="homeRoomNames" maxlength="40" value="${HO.esc(room.name)}" autocomplete="off">
-      <datalist id="homeRoomNames">${options.map(r => `<option value="${HO.esc(r.name)}"></option>`).join('')}</datalist></label>` ,
-      actions: [{ label: 'Übernehmen', kind: 'primary', onClick: async () => {
+      <datalist id="homeRoomNames">${options.map(r => `<option value="${HO.esc(r.name)}"></option>`).join('')}</datalist></label>
+      <p class="tiny muted">„Abbrechen“ entfernt den gerade gezeichneten Raum wieder (der letzte Schritt wird rückgängig gemacht).</p>`,
+      actions: [{ label: 'Abbrechen', kind: 'ghost', onClick: () => {
+        if (fp) fp.undo()
+        HO.toast('Raum wieder entfernt.')
+      } }, { label: 'Übernehmen', kind: 'primary', onClick: async () => {
         const name = sh.el.querySelector('#newPlanRoomName').value.trim()
         if (!name) { HO.toast('Bitte einen Raumnamen eingeben.', 'warn'); return true }
         try {
@@ -1234,14 +1245,16 @@
     setTimeout(() => { const i = sh.el.querySelector('#newPlanRoomName'); if (i) { i.focus(); i.select() } }, 0)
   }
 
-  // Dialog "Räume": create, rename, delete (empty rooms only).
+  // Dialog "Räume": create, rename, delete (empty rooms only; without a hub a room is its walls – it is deleted
+  // in the floor plan, so the button only explains that there).
   async function roomManagerSheet() {
     let rooms = []
     try { rooms = await HO.api('rooms/manage') } catch (e) { return HO.toast(e.message, 'bad') }
+    const hub = HO.roomHub()
     const renderRows = () => rooms.map(r => `<div class="li" data-room="${HO.esc(r.room_id)}"><div class="grow"><b>${HO.esc(r.name)}</b><div class="small muted">${r.devices} Gerät${r.devices === 1 ? '' : 'e'}</div></div>
       <button class="btn-icon sm" data-rename="${HO.esc(r.room_id)}" title="Umbenennen">${HO.icon('edit','sm')}</button>
-      <button class="btn-icon sm danger" data-delete="${HO.esc(r.room_id)}" title="Löschen" ${r.devices ? 'disabled' : ''}>${HO.icon('trash','sm')}</button></div>`).join('')
-    const hub = HO.roomHub()
+      <button class="btn-icon sm danger" data-delete="${HO.esc(r.room_id)}" ${!hub || r.devices ? 'disabled' : ''}
+        title="${hub ? 'Löschen' : 'Ohne Hub ist ein Raum seine Wände – im Grundriss-Editor löschen'}">${HO.icon('trash','sm')}</button></div>`).join('')
     const sh = HO.sheet({ title: 'Raumverwaltung', body: `<div class="row between"><span class="small muted">${hub ? 'Alle Räume – geführt von ' + HO.esc(hub) : 'Alle Räume'}</span>${hub ? `<button class="btn sm primary" id="roomAdd">${HO.icon('plus','sm')} Raum</button>` : ''}</div>
       ${hub ? '' : '<p class="tiny muted">Räume legst du im Grundriss an: Wände zeichnen, Raum antippen und benennen.</p>'}
       <div class="list" id="roomManagerRows" style="margin-top:10px">${renderRows() || '<p class="muted">Noch keine Räume vorhanden.</p>'}</div>
@@ -1260,7 +1273,29 @@
           await HO.api(`rooms/${encodeURIComponent(r.room_id)}/name`, { method: 'PUT', body: { name } })
         } else if (del) {
           const r = rooms.find(x => x.room_id === del.dataset.delete)
-          if (!r || r.devices || !await HO.confirm(`Raum „${r.name}“ wirklich löschen?`, { title: 'Raum löschen', ok: 'Löschen', danger: true })) return
+          if (!r || r.devices) return
+          // What still points at this room (since 0.30): scenes, flows, widgets, heating routines. Deleting leaves
+          // those references without a target (they fail quietly), so the confirmation names them beforehand.
+          const used = [], needle = JSON.stringify(r.room_id)
+          const sc = (((HO.state.overview || {}).scenes || {}).scenes || []).filter(s => (s.rooms || []).indexOf(r.room_id) >= 0)
+          if (sc.length) used.push(`Szenen (${sc.map(s => s.name).join(', ')})`)
+          try {
+            const fl = ((await HO.api('flows')).flows || []).filter(f => JSON.stringify(f.nodes || []).indexOf(needle) >= 0)
+            if (fl.length) used.push(`Flows (${fl.map(f => f.name).join(', ')})`)
+          } catch (err) { /* without the flow list the hint is just shorter */ }
+          try {
+            const rt = ((await HO.api('routines')).routines || []).filter(x => JSON.stringify(x).indexOf(needle) >= 0)
+            if (rt.length) used.push(`Heizpläne (${rt.map(x => x.name).join(', ')})`)
+          } catch (err) { /* dito */ }
+          try {
+            const pages = (await HO.api('widgets')).pages || []
+            const n = pages.reduce((a, pg) => a + (pg.widgets || []).filter(w => w.opts && (w.opts.room === r.room_id
+              || (Array.isArray(w.opts.rooms) && w.opts.rooms.indexOf(r.room_id) >= 0))).length, 0)
+            if (n) used.push(`${n} Widget${n === 1 ? '' : 's'} der Widget-Ansicht`)
+          } catch (err) { /* dito */ }
+          const warn = used.length ? ` Darauf verweisen noch: ${used.join(' · ')} – diese Verweise laufen danach ins Leere und müssen von Hand angepasst werden.` : ''
+          if (!await HO.confirm(`Raum „${r.name}“ wirklich löschen?${warn} Die Raumfläche im Grundriss bleibt und ist danach unverknüpft.`,
+            { title: 'Raum löschen', ok: 'Löschen', danger: true })) return
           await HO.api(`rooms/${encodeURIComponent(r.room_id)}`, { method: 'DELETE' })
         } else return
         rooms = await HO.api('rooms/manage')
@@ -1271,14 +1306,69 @@
   }
 
   // Dialog of a room: scenes, temperatures and its devices.
+  /* Dialog of a room in the floor plan – since 0.30 with everything the room card of the classic view offers
+     (wish of the operator): room light switch, brightness, scenes, the lamps with their switches and the other
+     devices as tiles with their controls. Clicks are handled here: the sheet lies outside the page, so the
+     handlers of the home page do not reach it. */
   function roomSheet(r, info) {
-    const ov = HO.state.overview
+    const ov = () => HO.state.overview
     const key = r.key || r.room_id
-    const devs = ov.devices.filter(d => key && d.room_id === key)
-    const s = HO.sheet({ title: info ? info.name : r.name, body: `${key && devs.some(d => d.kind === 'light') ? `<div class="sheet-scenes">${HO.lights.sceneRowHTML({ room: key })}</div>` : ''}
-      ${info ? `<div class="stats" style="margin-top:0"><div class="stat"><span>Ist</span><b>${HO.temp(info.temperature)}</b></div><div class="stat"><span>Soll</span><b>${HO.temp(info.target)}</b></div></div>` : ''}
-      <div class="list" style="margin-top:12px">${devs.map(d => `<div class="dev-row ${d.online ? '' : 'off'}" data-dev="${HO.esc(d.id)}"><div class="dev-ic ${HO.devClass(d)}" ${lampTint(d)}>${HO.icon(d.kind)}</div><div class="r-main"><div class="r-name">${HO.esc(d.name)}</div><div class="r-state">${HO.esc(HO.devState(d))}</div></div></div>`).join('') || '<p class="muted">Noch keine Geräte – im Grundriss ein Gerät in diesen Raum ziehen oder beim Gerät den Raum wählen.</p>'}</div>` })
-    s.el.addEventListener('click', e => { const row = e.target.closest('[data-dev]'); if (row) { s.close(); deviceSheet(ov.devices.find(d => d.id === row.dataset.dev)) } })
+    const name = (info && info.name) || r.name || 'Raum'
+    const body = () => {
+      const devs = ov().devices.filter(d => key && d.room_id === key)
+      const lamps = devs.filter(d => d.kind === 'light').sort((a, b) => HO.byName(a.name, b.name))
+      const others = devs.filter(d => d.kind !== 'light').sort((a, b) => HO.byName(a.name, b.name))
+      const on = lamps.filter(d => d.on && d.online), sw = lamps.filter(switchable)
+      const glow = HO.lightGlow(lamps, 0.75)
+      const dim = lamps.some(d => d.light && d.online)
+      return `${info || sw.length ? `<div class="row between wrap g8" style="margin-bottom:12px">
+          ${info ? `<div class="stats" style="margin:0"><div class="stat"><span>Ist</span><b>${HO.temp(info.temperature)}</b></div><div class="stat"><span>Soll</span><b>${HO.temp(info.target)}</b></div></div>` : `<span class="small muted">${lamps.length ? (on.length ? `${on.length} von ${lamps.length} an` : 'Licht aus') : ''}</span>`}
+          ${sw.length ? `<button class="room-switch ${on.length ? 'on' : ''}" role="switch" aria-checked="${!!on.length}" data-room-lights data-on="${on.length ? 0 : 1}"
+            title="${on.length ? 'Alle Lampen im Raum ausschalten' : 'Alle Lampen im Raum einschalten'}" aria-label="Licht ${HO.esc(name)}"></button>` : ''}</div>` : ''}
+        ${dim ? `<input type="range" class="lt-bri" min="1" max="100" value="${HO.lights.avgBrightness(lamps)}" data-room-bri aria-label="Helligkeit ${HO.esc(name)}" style="margin-bottom:12px">` : ''}
+        ${lamps.length ? `<div class="sheet-scenes">${HO.lights.sceneRowHTML({ room: key })}</div>` : ''}
+        ${lamps.length ? `<div class="lt-lamps" style="position:relative">${glow ? `<div class="rc-glow" style="background:${glow}"></div>` : ''}${lamps.map(HO.lights.lampRowHTML).join('')}</div>` : ''}
+        ${others.length ? `<div class="${view === 'list' ? 'rc-list' : 'tiles sm'}" style="margin-top:12px">${others.map(tileHTML).join('')}</div>` : ''}
+        ${devs.length ? '' : '<p class="muted">Noch keine Geräte – im Grundriss ein Gerät in diesen Raum ziehen oder beim Gerät den Raum wählen.</p>'}`
+    }
+    const s = HO.sheet({ title: name, body: body() })
+    const redraw = () => { if (s.el.isConnected) HO.setHTML(s.body(), body()) }
+    s.el.addEventListener('click', async e => {
+      if (HO.media.handle(e, redraw)) return                    // play/pause of a speaker tile
+      const t = e.target.closest('[data-room-lights],[data-lt-toggle],[data-lt-open],[data-cmd],[data-dev]')
+      if (!t) return
+      if (t.dataset.roomLights != null) {
+        e.stopPropagation(); t.disabled = true
+        await switchLights(t.dataset.on === '1', [key], name)
+        return redraw()
+      }
+      if (t.dataset.ltToggle) {
+        const d = ov().devices.find(x => x.id === t.dataset.ltToggle)
+        if (d) await command(d.id, { on: !d.on }, `${d.name} ${d.on ? 'ausgeschaltet' : 'eingeschaltet'}`)
+        return redraw()
+      }
+      if (t.dataset.ltOpen) { s.close(); return deviceSheet(ov().devices.find(x => x.id === t.dataset.ltOpen)) }
+      if (t.dataset.cmd) {
+        e.stopPropagation()
+        const d = ov().devices.find(x => x.id === t.dataset.id)
+        if (!d) return
+        if (t.dataset.cmd === 'toggle') await command(d.id, { on: t.dataset.on === '1' }, `${d.name} ${t.dataset.on === '1' ? 'eingeschaltet' : 'ausgeschaltet'}`)
+        else if (t.dataset.cmd === 'cover') {
+          const label = { up: 'öffnet', down: 'schließt', stop: 'angehalten' }[t.dataset.v]
+          await command(d.id, { cover: t.dataset.v }, `${d.name} ${label}`)
+        } else {
+          const next = Math.max(5, Math.min(30, (d.target || 20) + Number(t.dataset.v)))
+          d.target = next
+          await command(d.id, { target: next }, `${d.name}: Soll ${HO.temp(next, true)}`)
+        }
+        return redraw()
+      }
+      if (t.dataset.dev) { s.close(); return deviceSheet(ov().devices.find(x => x.id === t.dataset.dev)) }
+    })
+    s.el.addEventListener('change', e => {
+      const bri = e.target.closest('[data-room-bri]')
+      if (bri) roomBrightness(key, +bri.value)
+    })
   }
 
   // Device group in the floor plan: control members individually or all together, detach single ones again

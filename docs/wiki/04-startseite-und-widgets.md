@@ -36,7 +36,7 @@ Hier stellst du die Seite selbst zusammen. Widgets liegen frei auf einem Raster,
 
 **Handy und großer Bildschirm** haben je eine eigene Anordnung. Ohne eigene Handy-Anordnung leitet ComfyOS sie von der breiten ab. Am großen Bildschirm blendet der Knopf links neben dem Umschalter die Seitenleiste aus.
 
-Widgets finden ihre Geräte über das, was diese können. Ein neu eingerichtetes Plugin taucht deshalb von selbst in den passenden Widgets auf.
+Widgets finden ihre Geräte über das, was diese können. Ein neu eingerichtetes Plugin taucht deshalb von selbst in den passenden Widgets auf. Das Grundriss-Widget trägt unten links einen Schalter für die **Effekte** (Lampenschein und Schallwellen) – dieselbe Einstellung wie der Knopf der klassischen Ansicht.
 
 ## Kopfzeile auf jeder Seite
 

@@ -10,7 +10,7 @@ Tippe im Grundriss auf **Bearbeiten**. Änderungen werden sofort gespeichert.
 
 | Werkzeug | So geht’s |
 |---|---|
-| **Wand** | Punkt für Punkt zeichnen. Jede rundum geschlossene Fläche wird ein Raum. Eine Wand auswählen und die Mitte ziehen macht einen Bogen. |
+| **Wand** | Punkt für Punkt zeichnen. Jede rundum geschlossene Fläche wird ein Raum. Eine Wand auswählen und die Mitte ziehen macht einen Bogen. Ein Rechtsklick bricht das Zeichnen ab; im Dialog „Raum benennen“ entfernt **Abbrechen** den gerade gezeichneten Raum wieder. |
 | **Tür, Fenster** | Auf eine Wand ziehen. Türen und Fenster lassen sich spiegeln und auf die andere Wandseite setzen. |
 | **Durchbruch** | Eine Öffnung ohne Tür, etwa zwischen Küche und Wohnzimmer. |
 | **Heizkörper** | Auf eine Wand ziehen, dann ein Thermostat daraufziehen. |
@@ -62,13 +62,13 @@ Ein Gerät gehört zu dem Raum, in dem es steht. Mit Home Base schreibt ComfyOS 
 - **Schatten nach Sonnenstand:** Das Haus wirft tagsüber einen Schatten, nachts liegt ein weicher Hof darum. Dafür stellst du im Editor einmal ein, wo Norden ist.
 - **Lampenschein:** Jede Lampe, die an ist, leuchtet im Plan in ihrer echten Farbe – Weißton, Farbe, Szene oder Farbverlauf. Das Licht geht von der Blase aus oder vom ganzen Symbol, bei einer Lichtleiste also über ihre ganze Länge, ein Farbverlauf liegt entlang der Leiste. Es endet an den Wänden und fällt durch offene Türen. Gedimmte Lampen leuchten schwächer, Lichteffekte wie Kerze oder Feuer flackern. Blasen und Symbole bleiben immer obenauf. Auch [Verbraucher](#verbraucher) leuchten so, mit ihrer festen Farbe und Helligkeit.
 - **Schallwellen:** Spielt ein Lautsprecher, gehen von ihm Schallwellen aus, die an den Wänden enden. Surround-Boxen, Sub und die zweite Box eines Stereopaars spielen mit, sobald ihr Raum spielt.
-- **Wettereffekte:** Regen, Schnee, Hagel, Nebel, Wolken, Gewitter, Frost, Sonnenlicht und Wind als Strömung ums Haus. Alle Effekte folgen ihrem eigenen Messwert und mischen sich – Sonnenstrahlen bei einem Schauer, je nach Bewölkung, Dunst neben Regen, der Mond in Wolkenlücken. Tagsüber ist die Umgebung heller, Sonnenstrahlen kommen und gehen, wandern mit den Wolken und enden am Haus; ab 4 °C setzt ganz zart Raureif ein, der bis 0 °C dichter wird, in Pfützen spiegeln sich ziehende Wolken, und Tropfen schlagen Wellen hinein. Durch die Fenster fällt Licht: tagsüber ein heller Schein, bei Sonne ein Lichtfleck auf dem Boden – kurz bei hoher, lang bei tiefer Sonne –, in klaren Nächten je nach Mondphase ein schwacher Mondschein; ein Rollladen verkürzt den Lichtfleck und hält das Licht geschlossen ganz draußen, das Tageslicht breitet sich weich im Raum aus und fällt durch offene Türen in den Nachbarraum. Bei Hitze flimmert die Luft an den Wänden in der Sonne. Ein Pfeil oben rechts zeigt Windrichtung und Stärke. Schalter **Wetter** über dem Plan, zwei Stärken in den Einstellungen.
+- **Wettereffekte:** Regen, Schnee, Hagel, Nebel, Wolken, Gewitter, Frost, Sonnenlicht und Wind als Strömung ums Haus. Alle Effekte folgen ihrem eigenen Messwert und mischen sich – Sonnenstrahlen bei einem Schauer, je nach Bewölkung, Dunst neben Regen, der Mond in Wolkenlücken. Tagsüber ist die Umgebung heller, Sonnenstrahlen kommen und gehen, wandern mit den Wolken und enden am Haus; ab 4 °C setzt ganz zart Raureif ein, der bis 0 °C dichter wird – im Eis spiegelt sich ganz schwach der Himmel –, in Pfützen spiegeln sich ziehende Wolken, und Tropfen schlagen Wellen hinein; Sterne und Sternschnuppen zeigen sich nur in diesen Spiegelungen. Durch die Fenster fällt Licht: tagsüber ein heller Schein, bei Sonne ein Lichtfleck auf dem Boden – kurz bei hoher, lang bei tiefer Sonne –, in klaren Nächten je nach Mondphase ein schwacher Mondschein; ein Rollladen verkürzt den Lichtfleck und hält das Licht geschlossen ganz draußen, das Tageslicht breitet sich weich im Raum aus und fällt durch offene Türen in den Nachbarraum. Bei Hitze flimmert die Luft an den Wänden in der Sonne. Ein Pfeil oben rechts zeigt Windrichtung und Stärke. Schalter **Wetter** über dem Plan, zwei Stärken in den Einstellungen.
 
 Für Wetter, Warnungen und Sonnenstand trägst du im Editor eine **Adresse** ein. Übertragen werden nur Postleitzahl oder Ort und auf etwa einen Kilometer gerundete Koordinaten, nie die Straße.
 
 ## Bedienen
 
-- Antippen eines Geräts öffnet sein Menü, Antippen eines Raums seine Details.
+- Antippen eines Geräts öffnet sein Menü, Antippen eines Raums seine Details – mit allen Schaltern wie in der Übersicht: Raumlicht, Helligkeit, Szenen und die Bedienung jedes Geräts.
 - Plus/Minus, zwei Finger oder Strg+Mausrad zoomen. **Ansicht zurücksetzen** zeigt wieder alles.
 - **Vollbild** zeigt den Plan bildschirmfüllend mit Wetterdetails.
 - **Namen** blendet die Gerätenamen ein und aus, **Heatmap** die Wärme, **Wetter** die Wettereffekte und **Effekte** Lampenschein und Schallwellen. „Effekte“ merkt sich jedes Gerät selbst und gehört zu Basic.

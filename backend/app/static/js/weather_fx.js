@@ -5,11 +5,12 @@
    nor lightning. Only then the inside layer is drawn (since 0.27, drawIndoor), each part clipped to its room and
    cut off at the walls: daylight, sunlight and moonlight that fall through the windows, and the sound waves of
    speakers that play. The building shadow stays in the SVG (floorplan.js). Outside, from bottom to top:
-     daylight · snow cover/hoarfrost patches · puddles in rain · sunlight as a gentle gradient from the sunny side
-     (with dusk, heat) · cloud shadows (day) or cloud veil (night) · fog banks · sun rays with the shadow shaft of
-     the house · stars and rarely a shooting star · wind as a flow around the house · rain in two
+     daylight · snow cover/hoarfrost patches (with a faint mirror of the sky) · puddles in rain · sunlight as a
+     gentle gradient from the sunny side (with dusk, heat) · cloud shadows (day) or cloud veil (night) · fog banks ·
+     sun rays with the shadow shaft of the house · wind as a flow around the house · rain in two
      depths, every drop ends in a ripple · hail · snow in two depths · leaves in the wind ·
-     hoarfrost glitter · thunderstorm.
+     hoarfrost glitter · thunderstorm. The stars (and the rare shooting star) show only in the reflections –
+     in the puddles and in the ice – no longer in the sky above the plan (since 0.30).
    Day and night blend smoothly into each other (sun elevation from getSun); at night everything is dampened.
 
    HO.weatherFx.mount(container, {after, getMask, getSun, getShift, getIndoor})
@@ -32,8 +33,10 @@
                   light passes; a speaker that plays at x, y with the radius r of its symbol and its volume (level 0…1);
                   a lamp that shines (since 0.28): shape = {r} of its bubble or {rot, lw, lh, round, key, m, ax, ay} of
                   its plan symbol (m = scale, ax/ay = stretch of HO.planSymbolShape – since 0.29, the halo follows it),
-                  colors = [[r, g, b], …] (several: a gradient or the members of a group), level = brightness 0…1,
-                  effect = running light effect or null, glow as at a window; bubbles and symbols stay free at the end
+                  colors = [[r, g, b], …] (several: a gradient or the members of a group), gmode = gradient mode of a
+                  strip (since 0.30: pixelated/segmented modes show hard bands, mirrored runs out and back), level =
+                  brightness 0…1, effect = running light effect or null, glow as at a window; bubbles and symbols stay
+                  free at the end
    fx (from /api/weather) = {kind, cloud, rain, snow, fog, wind, gust, wind_dir, thunder, storm, hail, frost,
                              frost_level, heat, is_day}; fx.indoor_only = no weather is known, only the inside layer runs.
                              fx.fog is missing in older data: then the kind "fog" stands for 1.
@@ -52,7 +55,7 @@
    ease, light effects flicker. Device bubbles and plan symbols always stay free: nothing of the inside layer lies on
    them.
 
-   Margin around the house: precipitation, wind, light and stars keep a narrow margin to the wall free (MARGIN). Clouds
+   Margin around the house: precipitation, wind and light keep a narrow margin to the wall free (MARGIN). Clouds
    and fog lie flat over the surroundings and reach up to the wall – they are drawn onto the main image,
    everything with a margin onto a second image (in memory), which is punched out with a margin and then laid on top.
    Wind (a small flow computation since 0.19.1, see "Flow around the house"): from 10 km/h (WIND_FX_MIN) lines
@@ -86,16 +89,19 @@
    with the haze (RAY_HAZE). The building throws a shadow shaft into them (shadeRays): a ray that hits the house
    does not continue behind it.
 
-   Hoarfrost (frost, since 0.26.1; from 4 °C since 0.27, reworked in 0.27.1): an icy veil and large soft patches of
-   worn ice that grow into one sheet – cloudy, with bundles of fine scratches, splats and a speckle of crystals –
-   lying fixed on the ground (like the puddles, never in the house, but on balconies), subtle, thinner on the sunny
-   side of the house than in its shadow; and crystals that glint as small four-pointed stars – more in sunlight.
-   fx.frost_level (0…1) thins it out in mild cold: only a hint of it at 4 °C, full at 0 °C.
+   Hoarfrost (frost, since 0.26.1; from 4 °C since 0.27, reworked in 0.27.1, smaller and finer since 0.30): an icy
+   veil and soft patches of worn ice that grow into one sheet – cloudy, with bundles of fine scratches, splats and a
+   speckle of crystals – lying fixed on the ground (like the puddles, never in the house, but on balconies), subtle,
+   thinner on the sunny side of the house than in its shadow; and crystals that glint as small four-pointed stars –
+   more in sunlight. A faint mirror of the sky lies on the ice (since 0.30): the same drifting clouds as in the
+   puddles, far subtler, and at night the stars. fx.frost_level (0…1) thins it out in mild cold: only a hint of it
+   at 4 °C, full at 0 °C.
 
    Puddles (reworked in 0.27 and 0.27.1): irregular with small pools beside them, never running into each other; wet
-   ground is darker than dry, and the water mirrors the sky – clouds that drift through it with the wind, a few
-   glints and a fine line along its edge; brighter by day, bright for a moment in lightning. A drop that lands in a
-   puddle sends a wave across it that displaces the mirror image.
+   ground is darker than dry, and the water mirrors the sky – clouds that drift through it with the wind, at night
+   the stars and the rare shooting star (since 0.30), a few glints and a fine line along its edge; brighter by day,
+   bright for a moment in lightning. A drop that lands in a puddle sends a wave across it that displaces the mirror
+   image.
 
    Heat (fx.heat, since 0.27.1): the walls in the sun give their heat off – gently waving lines detach from them,
    drift away and dissolve (hotWalls).
@@ -140,6 +146,9 @@
   // opacity of the hoarfrost patches and of the puddles with all that happens in them: both only accompany the floor
   // plan, they never draw the eye away from it (since 0.27.1)
   const FROST_ALPHA = 0.26, PUDDLE_ALPHA = 0.6
+  // the ice mirrors the sky (since 0.30): overall strength of the glaze, share of the clouds in it – far fainter
+  // than a puddle, only a hint; at night the stars show in it (and in the puddles – nowhere else)
+  const FROST_MIRROR = 0.3, FROST_MIRROR_CLOUD = 0.5
   const RAY_FAN = 0.07            // the sun rays fan out: turn (radians) of a ray at the edge of the frame against the light
   // light through a window, in grid cells: the glass reaches from WINDOW_SILL to WINDOW_HEAD above the floor, the
   // patch of light ends at the latest WINDOW_REACH behind the wall; WINDOW_LIGHT = opacity of the patch in full sun
@@ -370,7 +379,8 @@
      irregular outline, so that patches lying over each other grow into one sheet; on it
      bundles of fine scratches that run almost parallel and a few that cross them, splats with droplets flung to one
      side and a speckle of tiny crystals; some scratches take the ice away again. Built once, after that only drawImage
-     (turned differently for every patch). */
+     (turned differently for every patch). Since 0.30 smaller and finer (thinner scratches, smaller splats), and the
+     outline comes along as `mask` – the frame lays a faint mirror of the sky into it (clouds, at night the stars). */
   function rime(color) {
     const size = 256, mid = size / 2, R = size * FROST_UNIT
     const sheet = () => { const c = document.createElement('canvas'); c.width = c.height = size; return c }
@@ -412,13 +422,13 @@
       const cx = mid + rnd(-0.8, 0.8) * R, cy = mid + rnd(-0.8, 0.8) * R, turn = rnd(0, Math.PI), reach = rnd(0.5, 1.1) * R
       for (let i = Math.floor(rnd(10, 24)); i > 0; i--) {
         const across = rnd(-0.3, 0.3) * reach, along = rnd(-0.4, 0.4) * reach
-        k.globalAlpha = rnd(0.12, 0.55); k.lineWidth = rnd(0.5, 1.1)
+        k.globalAlpha = rnd(0.12, 0.55); k.lineWidth = rnd(0.35, 0.8)
         scratch(k, cx - Math.sin(turn) * across + Math.cos(turn) * along, cy + Math.cos(turn) * across + Math.sin(turn) * along,
           turn + (Math.random() < 0.15 ? rnd(0.5, 1.2) : rnd(-0.1, 0.1)), reach * rnd(0.25, 1.3))
       }
     }
     for (let b = Math.floor(rnd(2, 5)); b > 0; b--) {
-      const cx = mid + rnd(-0.9, 0.9) * R, cy = mid + rnd(-0.9, 0.9) * R, r = rnd(2.5, 7), fling = rnd(0, TAU)
+      const cx = mid + rnd(-0.9, 0.9) * R, cy = mid + rnd(-0.9, 0.9) * R, r = rnd(1.6, 4.5), fling = rnd(0, TAU)
       k.globalAlpha = rnd(0.2, 0.45)
       k.beginPath()
       for (let i = 0; i < 14; i++) {
@@ -433,18 +443,18 @@
     }
     for (let i = 0; i < 170; i++) {
       k.globalAlpha = rnd(0.15, 0.6)
-      k.beginPath(); k.arc(rnd(0, size), rnd(0, size), Math.random() < 0.9 ? rnd(0.5, 1) : rnd(1.1, 2), 0, TAU); k.fill()
+      k.beginPath(); k.arc(rnd(0, size), rnd(0, size), Math.random() < 0.9 ? rnd(0.4, 0.8) : rnd(0.9, 1.5), 0, TAU); k.fill()
     }
     k.globalCompositeOperation = 'destination-in'; k.globalAlpha = 1; k.drawImage(mask, 0, 0)
     // 3) worn places: a few scratches take the ice away; then the marks on top
     g.globalCompositeOperation = 'destination-out'; g.strokeStyle = '#000'; g.lineCap = 'round'
     for (let i = 0; i < 10; i++) {
-      g.globalAlpha = rnd(0.3, 0.7); g.lineWidth = rnd(0.8, 2)
+      g.globalAlpha = rnd(0.3, 0.7); g.lineWidth = rnd(0.6, 1.5)
       scratch(g, rnd(0.15, 0.85) * size, rnd(0.15, 0.85) * size, rnd(0, Math.PI), rnd(20, 90))
     }
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1
     g.drawImage(marks, 0, 0)
-    return ice
+    return { img: ice, mask }
   }
   /* What a puddle mirrors (since 0.27.1): the sky as a tile that repeats without a seam – an even sheet with brighter
      clouds and darker gaps, from three octaves of noise. The frame fills every puddle with it as a pattern that drifts
@@ -553,6 +563,7 @@
     const beamsOf = tint => beamSets[tint] || (beamSets[tint] = BEAM_PROFILES.map((profile, shape) => beam(tint, shape)))
     let hot = { mask: null, key: 0, edges: [], total: 0 }   // walls that give off heat (hotWalls)
     let mirrorTint = '', mirrorPattern = null   // the sky the puddles mirror (mirror), as a pattern
+    const glaze = document.createElement('canvas'), glazeCtx = glaze.getContext('2d')   // scratch: the mirror laid into a frost patch (since 0.30)
     const mirrorPan = [0, 0]              // … and how far it has drifted with the wind (grid cells)
     let flashNow = 0                      // brightness of the lightning in the frame drawn last (the puddles mirror it)
     let puddleShape = null, wet = 0       // puddles: for which building they lie and how large they are right now (0…1.3)
@@ -739,13 +750,14 @@
       puddles = groundSpots(mask, { per: 55, min: 4, max: 11, r: [1, 2], keep: 1.9, decks: false, apart: 2 })
         .map((s, i) => Object.assign(s, { img: images[i % images.length], waves: [] }))
     }
-    // Lay out hoarfrost patches for this building: large and overlapping, so the ground reads as one sheet of ice with
-    // gaps – also on balconies and terraces (frost forms there as well), never in the house or under another floor.
+    // Lay out hoarfrost patches for this building: overlapping, so the ground reads as one sheet of ice with gaps –
+    // also on balconies and terraces (frost forms there as well), never in the house or under another floor.
+    // Since 0.30 smaller and more of them (finer ice; the operator found the patches too coarse).
     function seedFrost(mask) {
       frostShape = mask.shape || ''
       const images = [0, 1, 2].map(() => rime(col.snow))
-      frost = groundSpots(mask, { per: 11, min: 8, max: 30, r: [2, 3.8], keep: 0.45, decks: true })
-        .map((s, i) => Object.assign(s, { img: images[i % images.length] }))
+      frost = groundSpots(mask, { per: 7, min: 10, max: 42, r: [1.2, 2.4], keep: 0.45, decks: true })
+        .map((s, i) => Object.assign(s, { img: images[i % images.length].img, mask: images[i % images.length].mask }))
     }
 
     /* The weather is attached to the plot: if the plan has moved in the frame or changed its scale (from -> to,
@@ -1056,6 +1068,28 @@
       if (fx.frost && frostShape !== (mask.shape || '')) seedFrost(mask)
       // puddles grow and shrink with the rain – leisurely; at once in the calm single image
       wet = dt ? wet + (wetGoal - wet) * Math.min(1, dt * 0.6) : running() ? wet : wetGoal
+      /* Reflections (since 0.30): puddles and hoarfrost mirror one and the same sky – a pattern of clouds that
+         drifts with the wind. The stars and the rare shooting star show only here, no longer in the sky above
+         the plan (wish of the operator). */
+      const icy = fx.frost && frost.length > 0 && !OLD && step < 2
+      const reflecting = !!mask.view && mask.view.s > 0 && ((puddles.length > 0 && wet > 0.03) || icy)
+      if (reflecting) {
+        if (mirrorTint !== col.light) { mirrorTint = col.light; mirrorPattern = mainCtx.createPattern(mirror(col.light), 'repeat') }
+        if (dt) { mirrorPan[0] += wv[0] * pace * 0.22 * dt / mask.view.s; mirrorPan[1] += wv[1] * pace * 0.22 * dt / mask.view.s }
+      }
+      if (!REDUCED && now && reflecting && dark > 0.8 && stars.length > 20 && !meteor && now >= nextMeteor) {
+        const a = rnd(0.35, 0.9) * (Math.random() < 0.5 ? 1 : -1) + Math.PI / 2
+        meteor = { t0: now, x: rnd(box.x + box.w * 0.15, bx1 - box.w * 0.15), y: rnd(box.y, box.y + box.h * 0.4), dx: Math.cos(a), dy: Math.abs(Math.sin(a)), len: rnd(70, 130) }
+        nextMeteor = now + rnd(45000, 150000)
+      }
+      let shooting = null
+      if (meteor && now) {
+        const p = (now - meteor.t0) / 650
+        if (p >= 1) meteor = null
+        else shooting = { hx: meteor.x + meteor.dx * meteor.len * p, hy: meteor.y + meteor.dy * meteor.len * p, a: Math.sin(Math.PI * p) * 0.6 * k }
+      }
+      // twinkling of one star right now (0…1) – water and ice share it
+      const twinkle = s => s.a * (0.6 + 0.4 * Math.sin(s.ph + t * s.sp)) * dark
       if (fx.snow > 0 || fx.frost || raining || wet > 0.03) onEdge()
       if (fx.snow > 0) wash(col.snow, (0.03 + 0.04 * fx.snow) * k * (1 - 0.5 * dark))
       else if (fx.frost) wash(col.snow, 0.03 * k * frostOf())
@@ -1067,6 +1101,7 @@
         // subtle (since 0.27.1); at 4 °C only a hint of it, at 0 °C the full frost (since 0.27.4). The sun thins the
         // frost: on the sunny side of the house less of it is left than in its shadow.
         const strength = FROST_ALPHA * k * (1 - 0.3 * dark) * (0.25 + 0.75 * cold)
+        const scale = 4.6 * v.s / 128      // one tile of the mirror covers 4.6 grid cells (as in the puddles)
         for (const p of frost.slice(0, some)) {
           const half = p.r * v.s / FROST_UNIT / 2, x = v.x + p.x * v.s, y = v.y + p.y * v.s, far = half * 1.42   // turned: the diagonal
           if (x + far < box.x || x - far > bx1 || y + far < box.y || y - far > by1) continue
@@ -1075,6 +1110,33 @@
           ctx.save(); ctx.translate(x, y); ctx.rotate(p.rot)
           ctx.drawImage(p.img, -half, -half, half * 2, half * 2)
           ctx.restore()
+          // a faint mirror of the sky lies on the ice (since 0.30): the drifting clouds of the puddles, far
+          // subtler – and at night the stars. Content and outline meet in the scratch image (glaze).
+          if (icy && mirrorPattern) {
+            const size = Math.ceil(far * 2), g = glazeCtx
+            if (glaze.width < size || glaze.height < size) { glaze.width = size; glaze.height = size }
+            g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'
+            g.clearRect(0, 0, size, size)
+            const ox = v.x + mirrorPan[0] * v.s - (x - size / 2), oy = v.y + mirrorPan[1] * v.s - (y - size / 2)
+            g.save(); g.globalAlpha = FROST_MIRROR_CLOUD * (0.5 + 0.5 * day)
+            g.translate(ox, oy); g.scale(scale, scale); g.fillStyle = mirrorPattern
+            g.fillRect(-ox / scale, -oy / scale, size / scale, size / scale); g.restore()
+            if (dark > 0.15 && stars.length) {
+              g.fillStyle = col.star
+              for (const s of stars) {
+                const sx = box.x + s.u * box.w - x + size / 2, sy = box.y + s.v * box.h - y + size / 2
+                if (sx < 0 || sy < 0 || sx > size || sy > size) continue
+                g.globalAlpha = twinkle(s)
+                g.beginPath(); g.arc(sx, sy, s.r, 0, TAU); g.fill()
+              }
+            }
+            g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1
+            g.translate(size / 2, size / 2); g.rotate(p.rot)
+            g.drawImage(p.mask, -half, -half, half * 2, half * 2)
+            g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'
+            ctx.globalAlpha = FROST_MIRROR * k * (0.25 + 0.75 * cold)
+            ctx.drawImage(glaze, 0, 0, size, size, x - size / 2, y - size / 2, size, size)
+          }
           frostShown++
         }
       }
@@ -1091,9 +1153,7 @@
         // swing against each other (more in heavy rain and wind).
         const v = mask.view, full = PUDDLE_ALPHA * pk * clamp(wet * 2.5, 0, 1), sky = clamp((0.4 + 0.5 * day) * (1 + 2.5 * flashNow), 0, 1.6)
         const rough = 0.012 + 0.03 * (fx.rain || 0) + 0.014 * wind, strips = OLD ? 6 : 12
-        if (mirrorTint !== col.light) { mirrorTint = col.light; mirrorPattern = mainCtx.createPattern(mirror(col.light), 'repeat') }
-        if (dt) { mirrorPan[0] += wv[0] * pace * 0.22 * dt / v.s; mirrorPan[1] += wv[1] * pace * 0.22 * dt / v.s }
-        const scale = 4.6 * v.s / 128      // one tile of the mirror covers 4.6 grid cells
+        const scale = 4.6 * v.s / 128      // one tile of the mirror covers 4.6 grid cells (pattern and drift: see "Reflections")
         // fill a rectangle with the mirrored sky, displaced by sx, sy pixels
         const reflect = (x0, y0, w, h, sx, sy, alpha) => {
           const ox = v.x + mirrorPan[0] * v.s + sx, oy = v.y + mirrorPan[1] * v.s + sy
@@ -1118,6 +1178,24 @@
           }
           ctx.clip()
           if (mirrorPattern) reflect(left, top, edge, edge, 0, 0, sky * full)
+          // the stars lie in the water (since 0.30 they show only in reflections): fixed places, twinkling –
+          // and now and then the shooting star crosses a puddle
+          if (dark > 0.15 && stars.length) {
+            ctx.fillStyle = col.star
+            for (const s of stars) {
+              const sx = box.x + s.u * box.w, sy = box.y + s.v * box.h
+              if (sx < left - 2 || sx > left + edge + 2 || sy < top - 2 || sy > top + edge + 2) continue
+              ctx.globalAlpha = clamp(twinkle(s) * full, 0, 1)
+              ctx.beginPath(); ctx.arc(sx, sy, s.r, 0, TAU); ctx.fill()
+            }
+          }
+          if (shooting) {
+            const tx = shooting.hx - meteor.dx * 46, ty = shooting.hy - meteor.dy * 46
+            const streak = ctx.createLinearGradient(shooting.hx, shooting.hy, tx, ty)
+            streak.addColorStop(0, rgba(col.star, 1)); streak.addColorStop(1, rgba(col.star, 0))
+            ctx.globalAlpha = clamp(shooting.a * full, 0, 1); ctx.strokeStyle = streak; ctx.lineWidth = 1.2; ctx.lineCap = 'round'
+            ctx.beginPath(); ctx.moveTo(shooting.hx, shooting.hy); ctx.lineTo(tx, ty); ctx.stroke()
+          }
           const body = edge * PUDDLE_UNIT      // radius 1 of the puddle in pixels
           for (const w of p.waves) {
             const q = w.t / w.life, wx = x + w.x * body, wy = y + w.y * body, R = 2 + q * w.R * body, fade = (1 - q) * (1 - q) * full
@@ -1295,33 +1373,8 @@
         }
       }
       stats.haze = hazes
-      // 6) Stars: twinkle calmly, fade with dusk; rarely a shooting star
-      if (stars.length && dark > 0.15) {
-        onEdge()
-        ctx.fillStyle = col.star
-        for (const s of stars) {
-          ctx.globalAlpha = s.a * (0.6 + 0.4 * Math.sin(s.ph + t * s.sp)) * dark * k
-          ctx.beginPath(); ctx.arc(box.x + s.u * box.w, box.y + s.v * box.h, s.r, 0, TAU); ctx.fill()
-        }
-        if (!REDUCED && now && dark > 0.8 && stars.length > 20) {
-          if (!meteor && now >= nextMeteor) {
-            const a = rnd(0.35, 0.9) * (Math.random() < 0.5 ? 1 : -1) + Math.PI / 2
-            meteor = { t0: now, x: rnd(box.x + box.w * 0.15, bx1 - box.w * 0.15), y: rnd(box.y, box.y + box.h * 0.4), dx: Math.cos(a), dy: Math.abs(Math.sin(a)), len: rnd(70, 130) }
-            nextMeteor = now + rnd(45000, 150000)
-          }
-          if (meteor) {
-            const p = (now - meteor.t0) / 650
-            if (p >= 1) meteor = null
-            else {
-              const hx = meteor.x + meteor.dx * meteor.len * p, hy = meteor.y + meteor.dy * meteor.len * p
-              const tx = hx - meteor.dx * 46, ty = hy - meteor.dy * 46, g = ctx.createLinearGradient(hx, hy, tx, ty)
-              g.addColorStop(0, rgba(col.star, 1)); g.addColorStop(1, rgba(col.star, 0))
-              ctx.globalAlpha = Math.sin(Math.PI * p) * 0.6 * k; ctx.strokeStyle = g; ctx.lineWidth = 1.2; ctx.lineCap = 'round'
-              ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke()
-            }
-          }
-        }
-      }
+      // 6) Stars: since 0.30 they show only in the reflections – in the puddles and in the hoarfrost (above,
+      //    section 1), no longer in the sky above the plan (wish of the operator). The shooting star went with them.
       // 7) Wind: lines with a fading tail move in the flow field around the house. Amount, length and speed show the
       //    wind force; in the lee small vortices detach alternately left and right with more wind.
       if (wisps.length) {
@@ -1810,36 +1863,42 @@
         return [[l.x - Math.cos(a) * s.lw, l.y - Math.sin(a) * s.lw], [l.x + Math.cos(a) * s.lw, l.y + Math.sin(a) * s.lw]]
       }
       const css = (col, alpha) => `rgba(${Math.round(col[0])},${Math.round(col[1])},${Math.round(col[2])},${alpha})`
-      // one colour, or the colours as a gradient from a to b (in the space of the canvas g)
-      const paint = (g, cols, a, b) => {
+      /* One colour, or the colours as a gradient from a to b (in the space of the canvas g). How they lie follows
+         the gradient mode of the lamp (since 0.30 – before, every strip blended): the pixelated and segmented modes
+         show hard bands, as the strip itself does; the mirrored mode runs out and back; everything else blends. */
+      const paint = (g, cols, a, b, gmode) => {
         if (cols.length === 1) return css(cols[0], 1)
+        const list = gmode === 'interpolated_palette_mirrored' ? cols.concat(cols.slice(0, -1).reverse()) : cols
         const gr = g.createLinearGradient(a[0], a[1], b[0], b[1])
-        cols.forEach((col, i) => gr.addColorStop(i / (cols.length - 1), css(col, 1)))
+        if (gmode === 'random_pixelated' || gmode === 'segmented_palette') {
+          list.forEach((col, i) => { gr.addColorStop(i / list.length, css(col, 1)); gr.addColorStop((i + 1) / list.length - 0.001, css(col, 1)) })
+        } else list.forEach((col, i) => gr.addColorStop(i / (list.length - 1), css(col, 1)))
         return gr
       }
       // the image of the light of a lamp in its colours – made anew only when they or the image change
       const tintedLamp = m => {
-        const l = m.lamp, f = l.glow, img = f.img, key = m.cols.map(col => col.map(Math.round).join(',')).join('|')
+        const l = m.lamp, f = l.glow, img = f.img, cols = m.draw || m.cols
+        const key = (l.gmode || '') + '/' + cols.map(col => col.map(Math.round).join(',')).join('|')
         if (m.cv && m.field === f && m.key === key) return m.cv
         const cv = m.cv || (m.cv = document.createElement('canvas'))
         if (cv.width !== img.width || cv.height !== img.height) { cv.width = img.width; cv.height = img.height }
         const g = cv.getContext('2d'), sx = img.width / f.w, sy = img.height / f.h, into = p => [(p[0] - f.x) * sx, (p[1] - f.y) * sy]
         const [a, b] = axisOf(l)
         g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0)
-        g.globalCompositeOperation = 'source-in'; g.fillStyle = paint(g, m.cols, into(a), into(b)); g.fillRect(0, 0, cv.width, cv.height)
+        g.globalCompositeOperation = 'source-in'; g.fillStyle = paint(g, cols, into(a), into(b), l.gmode); g.fillRect(0, 0, cv.width, cv.height)
         m.field = f; m.key = key
         return cv
       }
-      /* The halo at the edge of the bubble or symbol – strokes around its outline, wider ones fainter (the inner half
+      /* The halo at the edge of the bubble or symbol – since 0.30 one single ring along its outline (the inner half
          lies under the symbol, which is left free at the end). Drawn once per colour, shape and scale into an image of
          its own, in the turned frame of the symbol; every frame only lays it on (since 0.28: no strokes per frame).
          Since 0.29 a plan symbol gets it along its own bodies (symbolShape) – a light bar along its slot, a round lamp
          along its circle; only without Path2D the box (rounded) or the ellipse of a round symbol. */
       const haloOf = m => {
-        const l = m.lamp, s = l.shape, bubble = s.r != null, wide = LAMP_HALO_W * v.s
+        const l = m.lamp, s = l.shape, bubble = s.r != null, wide = LAMP_HALO_W * v.s, drawn = m.draw || m.cols
         const w = (bubble ? s.r : s.lw) * v.s, h = (bubble ? s.r : s.lh) * v.s, pad = wide + 2
         const outline = !bubble && s.key && s.m > 0 ? symbolShape(s.key, s.ax, s.ay) : null, sc = outline ? s.m * v.s : 1
-        const cols = m.cols.map(col => col.map(Math.round).join(',')).join('|')
+        const cols = (l.gmode || '') + ':' + drawn.map(col => col.map(Math.round).join(',')).join('|')
         const form = bubble ? 'b' : outline ? [s.key, (s.ax || 1).toFixed(3), (s.ay || 1).toFixed(3)].join(',') : s.round ? 'o' : 'r'
         const key = [cols, Math.round(w * 2), Math.round(h * 2), Math.round(wide * 2), form, dpr].join('/')
         const cw = 2 * (w + pad), ch = 2 * (h + pad)
@@ -1848,15 +1907,16 @@
         cv.width = Math.ceil(cw * dpr); cv.height = Math.ceil(ch * dpr)
         const g = cv.getContext('2d')
         g.setTransform(dpr, 0, 0, dpr, cw / 2 * dpr, ch / 2 * dpr)
-        g.lineJoin = 'round'; g.lineCap = 'round'; g.globalAlpha = 0.17
+        // one single ring (since 0.30, wish of the operator): before, a stack of rings faded outwards, whose
+        // steps read as a dithered rim around the lamp – now one stroke along the outline; its inner half lies
+        // under the bubble or symbol, which is punched out at the end
+        g.lineJoin = 'round'; g.lineCap = 'round'; g.globalAlpha = 0.55
         if (outline) {
           // in the frame of the drawing: the colours along its length, the widths in pixels
           g.scale(sc, sc); g.translate(-24, -24)
-          g.strokeStyle = paint(g, m.cols, [24 - w / sc, 24], [24 + w / sc, 24])
-          for (let i = 6; i >= 1; i--) {
-            g.lineWidth = 2 * wide * Math.pow(i / 6, 1.4) / sc
-            for (const part of outline) if (part.body) g.stroke(part.p)
-          }
+          g.strokeStyle = paint(g, drawn, [24 - w / sc, 24], [24 + w / sc, 24], l.gmode)
+          g.lineWidth = 2 * wide / sc
+          for (const part of outline) if (part.body) g.stroke(part.p)
           m.haloKey = key
           return { img: cv, w: cw, h: ch }
         }
@@ -1869,13 +1929,27 @@
         }
         // the colours along the axis (axisOf), here relative to the middle and before the turn
         const H = (s.r + LAMP_HALO_W) * v.s
-        g.strokeStyle = bubble ? paint(g, m.cols, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174]) : paint(g, m.cols, [-w, 0], [w, 0])
-        for (let i = 6; i >= 1; i--) { g.lineWidth = 2 * wide * Math.pow(i / 6, 1.4); g.stroke() }
+        g.strokeStyle = bubble ? paint(g, drawn, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174], l.gmode) : paint(g, drawn, [-w, 0], [w, 0], l.gmode)
+        g.lineWidth = 2 * wide
+        g.stroke()
         m.haloKey = key
         return { img: cv, w: cw, h: ch }
       }
       const daylight = 1 - LAMP_DAY * (e.day || 0)
-      for (const m of shining) m.now = m.level * flicker(m) * e.k * daylight
+      /* A lamp with several colours and a running effect plays it along its length (since 0.30): every colour
+         flickers with a phase of its own instead of the whole strip breathing as one. The factor is quantised so
+         the tinted images are rebuilt rarely (their key carries the rounded colours). */
+      const segment = (m, i) => {
+        const p = m.ph + i * 1.9
+        const f = 0.82 + 0.12 * Math.sin(t * 5.1 + p) * Math.sin(t * 2.3 + 2 * p) + 0.06 * Math.sin(t * 9.7 + 3 * p)
+        return Math.round(clamp(f, 0.6, 1) * 20) / 20
+      }
+      for (const m of shining) {
+        m.now = m.level * flicker(m) * e.k * daylight
+        m.draw = !REDUCED && m.cols.length > 1 && m.lamp.effect
+          ? m.cols.map((col, i) => { const f = segment(m, i); return [col[0] * f, col[1] * f, col[2] * f] })
+          : m.cols
+      }
       // the light that spreads: clipped to the rooms as a whole, it passes open doors by itself
       const lampSpread = () => {
         for (const m of shining) {
@@ -2090,7 +2164,8 @@
     // shines.
     const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor)
     const fpsNow = () => quick() ? STEPS[step].fps : sounding() ? Math.min(STEPS[step].fps, Math.max(STEPS[step].calm, SOUND_FPS)) : STEPS[step].calm
-    const animated = () => !!fx && !REDUCED && !!(quick() || sounding() || clouds.length || banks.length || (stars.length && darkNow > 0.15) || glints.length ||
+    const animated = () => !!fx && !REDUCED && !!(quick() || sounding() || clouds.length || banks.length ||
+      (stars.length && darkNow > 0.15 && (wet > 0.03 || (fx.frost && frost.length))) || glints.length ||
       ((rays.length || shimmers.length) && sunUp) || fx.thunder || lampsBusy())
     const running = () => alive && !held && animated() && visible && !document.hidden
     // after every frame: average delay and cost; every CHECK_EVERY frames decide whether a step back is needed
@@ -2134,6 +2209,24 @@
     const ro = window.ResizeObserver ? new ResizeObserver(() => { if (resize() && !raf) draw(0, 0) }) : null
     if (ro) ro.observe(canvas)
 
+    // What the calm single image depends on (since 0.30): the seeded weather, size, colours, the position of sun
+    // and moon (rounded – it creeps) and the state of the inside layer. If none of it changed, a live message
+    // repaints nothing – before, every message redrew the whole canvas every few seconds.
+    let calmSig = ''
+    function sigOf() {
+      const indoor = opts.getIndoor ? opts.getIndoor() : null, sun = sunNow(), m = opts.getMask ? opts.getMask() : null
+      const parts = [seedKey, level, W, H, tokensOf || '', m ? m.shape || '' : '',
+        sun && typeof sun.el === 'number' ? Math.round(sun.el * 2) + ',' + Math.round((sun.az || 0) * 2) : '',
+        sun && sun.moon ? Math.round(sun.moon.el) + ':' + Math.round((sun.moon.phase || 0) * 20) : '']
+      if (indoor) {
+        for (const w of indoor.windows) parts.push('w', w.room, Math.round(w.open * 50), w.glow ? 1 : 0)
+        for (const l of indoor.lamps) parts.push('l', l.id, Math.round(l.level * 100), l.effect || '', l.gmode || '',
+          l.colors.map(c => c.map(Math.round).join(',')).join(';'))
+        for (const s of indoor.speakers) parts.push('s', Math.round(s.x * 10), Math.round(s.y * 10), Math.round(s.level * 20))
+        parts.push('b' + indoor.bubbles.length, 'y' + indoor.symbols.length)
+      }
+      return parts.join('|')
+    }
     return {
       // Take over new weather or a new strength; without weather the image is cleared.
       update(next, o) {
@@ -2143,9 +2236,14 @@
         const root = document.documentElement, look = (root.getAttribute('style') || '') + '|' + root.className
         if (look !== tokensOf) { col = tokens(); tokensOf = look }
         fx = next || null; level = lv
-        if (!fx) { mainCtx.setTransform(1, 0, 0, 1, 0, 0); mainCtx.clearRect(0, 0, canvas.width, canvas.height); return }
+        if (!fx) { mainCtx.setTransform(1, 0, 0, 1, 0, 0); mainCtx.clearRect(0, 0, canvas.width, canvas.height); calmSig = ''; return }
         if (resize()) seed()
-        kick()
+        // out of sight or in a hidden tab nothing is painted: coming back kicks anyway (visibilitychange, observer)
+        if (document.hidden || !visible) { calmSig = ''; return }
+        if (running() || animated()) { kick(); return }
+        // calm single image: repaint only what changed (see sigOf)
+        const sig = sigOf()
+        if (sig !== calmSig) { calmSig = sig; kick() }
       },
       redraw() { if (!raf) draw(0, 0) },
       // A gesture at the floor plan begins (on) or ends. Returns whether the weather image stays in its place
@@ -2161,9 +2259,13 @@
       // own tick would be a touch too late – the house would run away from its section).
       follow() {
         if (!alive || held) return
-        if (!running()) return draw(0, 0)
+        // at the pace of the current step, never per pointer move (since 0.30): a gesture fires far more often
+        // than frames are needed, and every call here costs a whole drawing – that made panning stutter
         const ts = performance.now(), gap = last ? ts - last : 0
-        last = ts; stats.frames++
+        if (gap && gap < 1000 / fpsNow() - 2) return
+        last = ts
+        if (!running()) return draw(0, 0)
+        stats.frames++
         draw(ts, Math.min(0.1, gap / 1000))
       },
       get animating() { return !!raf },

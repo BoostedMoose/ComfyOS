@@ -166,6 +166,19 @@ def run(p, engine, name, **ctx_args):
     page.wait_for_selector("#wgHost:not(.editing)")
     if page.locator("#wgHost .wg-edit").count():
         problems.append(f"{name}: surfaces of the editor stay after „Fertig“")
+    # effects switch in the frame of the floor plan widget (since 0.30): same preference as the classic button
+    fxbtn = page.locator("#wgHost .wg-type-floorplan .fp-fxbtn")
+    if fxbtn.count() != 1 or fxbtn.get_attribute("aria-pressed") != "true":
+        problems.append(f"{name}: the effects switch of the floor plan widget is missing or wrong ({fxbtn.count()})")
+    else:
+        fxbtn.click()
+        page.wait_for_timeout(150)
+        if page.evaluate("() => localStorage.getItem('ho.fpEffects')") != "0" or fxbtn.get_attribute("aria-pressed") != "false":
+            problems.append(f"{name}: the effects switch of the floor plan widget does not switch off")
+        fxbtn.click()
+        page.wait_for_timeout(150)
+        if page.evaluate("() => localStorage.getItem('ho.fpEffects')") != "1":
+            problems.append(f"{name}: the effects switch of the floor plan widget does not switch on again")
     # a widget switches through the handlers of the home page: all lights off and on again
     button = page.locator("#wgHost .wg-type-lights .wg-power")
     if button.count() == 1:

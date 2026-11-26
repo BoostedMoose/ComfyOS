@@ -15,7 +15,7 @@ ROOT, tmp = boot.isolate("hue")
 import httpx  # noqa: E402
 
 from app import auth, core, device_store, egress, main, plugins  # noqa: E402
-from support.homebase import QiviconConnector, install_homebase  # noqa: E402
+from support.homebase import QiviconConnector, QiviconError, install_homebase  # noqa: E402
 from support.homebase import build_devices  # noqa: E402
 
 BR = "ecb5faaabbcc"
@@ -49,6 +49,7 @@ ITEMS = [{"name": "L1_color", "state": "0,0,50"}, {"name": "L9_color", "state": 
          {"name": "kueche", "label": "Küche", "type": "Group"}, {"name": "wohnen", "label": "Wohnzimmer", "type": "Group"},
          {"name": "flur", "label": "Flur", "type": "Group"}]
 hb_writes = []
+hb_moves = []
 
 
 class MockHB(QiviconConnector):
@@ -82,8 +83,14 @@ class MockHB(QiviconConnector):
         raise AssertionError("unerwarteter Lesezugriff " + path)
 
     async def move_device(self, device_id, room_id):
-        """Must never be called in this world – Hue lamps only change their room in ComfyOS."""
-        raise AssertionError(f"move_device darf für {device_id} nicht aufgerufen werden")
+        """Like the real Home Base: only a thing it knows moves (a linked lamp under its Thing-UID, never under
+        the id of the direct Hue device); the location of the thing changes. Moves land in hb_moves."""
+        thing = next((t for t in THINGS if t["UID"] == device_id), None)
+        if thing is None:
+            raise QiviconError(f"Gerät {device_id} ist der Home Base unbekannt.")
+        hb_moves.append((device_id, room_id))
+        thing["location"] = room_id
+        self.invalidate_devices()
 
 
 # ------------------------------------------------------------------ Mock Hue Bridge
