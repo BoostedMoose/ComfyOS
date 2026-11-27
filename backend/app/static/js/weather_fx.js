@@ -168,6 +168,9 @@
   // daylight takes away from it. Since 0.30.1 the halo is faint and the light itself stronger (wish of the operator:
   // the bright rim read as a second lamp, the glow in the room was hardly there)
   const LAMP_LIGHT = 0.52, LAMP_HALO = 0.16, LAMP_HALO_W = 0.9, LAMP_EASE = 0.45, LAMP_DAY = 0.35
+  // a Hue effect on a gradient strip (since 0.30.2): pixels it is played over (from the gradient points of the strip,
+  // at least and at most) and how often per second the pattern moves on
+  const EFFECT_PIXELS = [5, 9], EFFECT_RATE = 8
   const EDDY_MIN = 0.15           // Wirbel im Windschatten ab ~12 km/h, voll ab ~50 km/h
   const FLOW_CELLS = OLD ? 1400 : 2800   // flow grid: at most this many cells
   const TRAIL = OLD ? 8 : 12      // points in the tail of a wind line
@@ -1850,7 +1853,7 @@
       // running light effect: candle and fire flicker, sparkle and glisten twinkle, every other effect breathes
       const flicker = m => {
         const fxName = m.lamp.effect, p = m.ph
-        if (!fxName || REDUCED) return 1
+        if (!fxName || REDUCED || m.fxSegs) return 1     // a strip plays its effect in its colours (effectColors)
         if (fxName === 'candle' || fxName === 'fire') return 0.82 + 0.1 * Math.sin(t * 7.3 + p) * Math.sin(t * 2.9 + 2 * p) + 0.08 * Math.sin(t * 13.1 + 3 * p) * Math.sin(t * 0.7 + p)
         if (fxName === 'sparkle' || fxName === 'glisten') return 0.9 + 0.1 * Math.pow(Math.abs(Math.sin(t * 1.3 + p)), 12)
         return 0.92 + 0.08 * Math.sin(t * 0.8 + p)
@@ -1876,17 +1879,19 @@
         } else list.forEach((col, i) => gr.addColorStop(i / (list.length - 1), css(col, 1)))
         return gr
       }
+      // how the colours lie along the lamp: the gradient mode of the strip – an effect blends its pixels (since 0.30.2)
+      const gmodeOf = m => m.fxSegs ? '' : m.lamp.gmode || ''
       // the image of the light of a lamp in its colours – made anew only when they or the image change
       const tintedLamp = m => {
         const l = m.lamp, f = l.glow, img = f.img, cols = m.draw || m.cols
-        const key = (l.gmode || '') + '/' + cols.map(col => col.map(Math.round).join(',')).join('|')
+        const key = gmodeOf(m) + '/' + cols.map(col => col.map(Math.round).join(',')).join('|')
         if (m.cv && m.field === f && m.key === key) return m.cv
         const cv = m.cv || (m.cv = document.createElement('canvas'))
         if (cv.width !== img.width || cv.height !== img.height) { cv.width = img.width; cv.height = img.height }
         const g = cv.getContext('2d'), sx = img.width / f.w, sy = img.height / f.h, into = p => [(p[0] - f.x) * sx, (p[1] - f.y) * sy]
         const [a, b] = axisOf(l)
         g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0)
-        g.globalCompositeOperation = 'source-in'; g.fillStyle = paint(g, cols, into(a), into(b), l.gmode); g.fillRect(0, 0, cv.width, cv.height)
+        g.globalCompositeOperation = 'source-in'; g.fillStyle = paint(g, cols, into(a), into(b), gmodeOf(m)); g.fillRect(0, 0, cv.width, cv.height)
         m.field = f; m.key = key
         return cv
       }
@@ -1899,7 +1904,7 @@
         const l = m.lamp, s = l.shape, bubble = s.r != null, wide = LAMP_HALO_W * v.s, drawn = m.draw || m.cols
         const w = (bubble ? s.r : s.lw) * v.s, h = (bubble ? s.r : s.lh) * v.s, pad = wide + 2
         const outline = !bubble && s.key && s.m > 0 ? symbolShape(s.key, s.ax, s.ay) : null, sc = outline ? s.m * v.s : 1
-        const cols = (l.gmode || '') + ':' + drawn.map(col => col.map(Math.round).join(',')).join('|')
+        const cols = gmodeOf(m) + ':' + drawn.map(col => col.map(Math.round).join(',')).join('|')
         const form = bubble ? 'b' : outline ? [s.key, (s.ax || 1).toFixed(3), (s.ay || 1).toFixed(3)].join(',') : s.round ? 'o' : 'r'
         const key = [cols, Math.round(w * 2), Math.round(h * 2), Math.round(wide * 2), form, dpr].join('/')
         const cw = 2 * (w + pad), ch = 2 * (h + pad)
@@ -1915,7 +1920,7 @@
         if (outline) {
           // in the frame of the drawing: the colours along its length, the widths in pixels
           g.scale(sc, sc); g.translate(-24, -24)
-          g.strokeStyle = paint(g, drawn, [24 - w / sc, 24], [24 + w / sc, 24], l.gmode)
+          g.strokeStyle = paint(g, drawn, [24 - w / sc, 24], [24 + w / sc, 24], gmodeOf(m))
           g.lineWidth = 2 * wide / sc
           for (const part of outline) if (part.body) g.stroke(part.p)
           m.haloKey = key
@@ -1930,7 +1935,7 @@
         }
         // the colours along the axis (axisOf), here relative to the middle and before the turn
         const H = (s.r + LAMP_HALO_W) * v.s
-        g.strokeStyle = bubble ? paint(g, drawn, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174], l.gmode) : paint(g, drawn, [-w, 0], [w, 0], l.gmode)
+        g.strokeStyle = bubble ? paint(g, drawn, [-H * 0.985, -H * 0.174], [H * 0.985, H * 0.174], gmodeOf(m)) : paint(g, drawn, [-w, 0], [w, 0], gmodeOf(m))
         g.lineWidth = 2 * wide
         g.stroke()
         m.haloKey = key
@@ -1945,11 +1950,18 @@
         const f = 0.82 + 0.12 * Math.sin(t * 5.1 + p) * Math.sin(t * 2.3 + 2 * p) + 0.06 * Math.sin(t * 9.7 + 3 * p)
         return Math.round(clamp(f, 0.6, 1) * 20) / 20
       }
+      /* A gradient strip with a running Hue effect (since 0.30.2): the bridge reports one colour, the strip plays the
+         effect over its pixels – HO.effectColors simulates the pattern of every effect along the strip. The time is
+         quantised to EFFECT_RATE steps per second, so the tinted images are rebuilt rarely. */
+      const tq = REDUCED ? 0 : Math.floor(t * EFFECT_RATE) / EFFECT_RATE
       for (const m of shining) {
+        const l = m.lamp
+        m.fxSegs = l.effect && l.segs > 1 && HO.effectColors ? clamp(l.segs * 2 - 1, EFFECT_PIXELS[0], EFFECT_PIXELS[1]) : 0
         m.now = m.level * flicker(m) * e.k * daylight
-        m.draw = !REDUCED && m.cols.length > 1 && m.lamp.effect
-          ? m.cols.map((col, i) => { const f = segment(m, i); return [col[0] * f, col[1] * f, col[2] * f] })
-          : m.cols
+        m.draw = m.fxSegs ? HO.effectColors(l.effect, m.cols[0], m.fxSegs, tq, m.ph)
+          : !REDUCED && m.cols.length > 1 && l.effect
+            ? m.cols.map((col, i) => { const f = segment(m, i); return [col[0] * f, col[1] * f, col[2] * f] })
+            : m.cols
       }
       // the light that spreads: clipped to the rooms as a whole, it passes open doors by itself
       const lampSpread = () => {

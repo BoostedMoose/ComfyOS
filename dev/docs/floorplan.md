@@ -4,6 +4,18 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30.2 – Hue effects over the pixels of a strip, spotlights
+
+- **Effects on gradient strips:** a lamp row carries `segs` (`caps.gradient`, `indoorNow`). With a running effect and
+  `segs` > 1 the lamp light is drawn from `HO.effectColors(effect, colour, n, t, phase)` (core.js) instead of the one
+  colour the bridge reports: n = 2·segs − 1 within `EFFECT_PIXELS` [5, 9], t quantised to `EFFECT_RATE` 8 steps/s so
+  the tinted image and the halo are rebuilt at most 8 times per second; the pixels blend (`gmodeOf` ignores the gradient
+  mode while an effect runs) and the overall flicker is off (`flicker` returns 1). Candle, fire, sparkle, glisten and opal
+  use the effect colour; prism, underwater, cosmos, sunbeam and enchant their own palettes. A simulation of the
+  bridge's patterns, not compared with a real strip.
+- **Symbols `spot-2`, `spot-3`** (`floorplan_symbols.js`): heads are bodies (the halo follows them), the rail is a body
+  between them; stretching lengthens the rail, the heads stay round.
+
 ## Since 0.30.1 – fainter halo, stronger lamp light
 
 - **Light of the lamps retuned (wish of the operator: the bright rim at the bubble read as a second lamp while the glow

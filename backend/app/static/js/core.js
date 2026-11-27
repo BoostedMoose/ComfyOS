@@ -673,6 +673,73 @@ window.HO = window.HO || {};
     if (L.xy) return [HO.xyToRgb(L.xy[0], L.xy[1])]
     return [HO.mirekToRgb(HO.WARM)]
   }
+  // Colour from hue (degrees), saturation and lightness (0–1) to [r, g, b] 0–255, and back.
+  const hslRgb = (h, s, l) => {
+    const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)) }
+    return [f(0), f(8), f(4)].map(v => clamp255(v * 255))
+  }
+  // [r, g, b] 0–255 to [hue in degrees, saturation, lightness].
+  const rgbHsl = c => {
+    const r = c[0] / 255, g = c[1] / 255, b = c[2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn, l = (mx + mn) / 2
+    let h = 0
+    if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4
+    return [(h * 60 + 360) % 360, d ? d / (1 - Math.abs(2 * l - 1)) : 0, l]
+  }
+  /* Colours of a running Hue effect along a light strip (since 0.30.2, wish of the operator: "exakt mit mehreren Farben
+     wie Hue"). The bridge reports only the effect and its colour; the strip itself plays it over its pixels, every
+     effect with a pattern of its own. Simulated here: n colours from one end of the strip to the other at time t
+     (seconds), p = phase of the lamp (two strips never run in step). base = [r, g, b] of the effect colour. Candle,
+     fire, sparkle, glisten and opal take the colour of the effect; prism, underwater, cosmos, sunbeam and enchant have
+     their own palette, as on the bridge. Brightness is laid into the colour (a dark pixel = a darker colour). */
+  HO.effectColors = (effect, base, n, t, p) => {
+    const b = rgbHsl(base || [255, 147, 41]), out = [], wave = (x, sp, k) => 0.5 + 0.5 * Math.sin(x * k - t * sp + p)
+    const twinkle = (i, rate) => Math.pow(Math.max(0, Math.sin(t * rate + p + i * 2.399 + Math.sin(i * 7.1) * 3)), 18)
+    for (let i = 0; i < n; i++) {
+      const x = n > 1 ? i / (n - 1) : 0, q = p + i * 1.71
+      let h = b[0], s = b[1], l = b[2], v = 1
+      switch (effect) {
+        case 'candle':   // warm, every pixel flickers on its own, a little redder when it dims
+          v = 0.62 + 0.22 * Math.sin(t * 7.3 + q) * Math.sin(t * 2.9 + 2 * q) + 0.16 * Math.sin(t * 13.1 + 3 * q)
+          h = b[0] - 6 * (1 - v)
+          break
+        case 'fire': {   // flames run along the strip: red at the root, amber at the tips, uneven tongues
+          const f = wave(x, 2.2, 5.3) * 0.6 + wave(x, 3.7, 9.1) * 0.4
+          h = b[0] - 14 + 26 * f; s = Math.max(s, 0.85); v = 0.45 + 0.55 * f
+          break
+        }
+        case 'sparkle':  // the colour, dimmed, and single pixels flash white for a moment
+          v = 0.55; l = Math.min(0.95, l + 0.45 * twinkle(i, 2.6)); s *= 1 - 0.8 * twinkle(i, 2.6); v += 0.45 * twinkle(i, 2.6)
+          break
+        case 'glisten':  // a soft shimmer wandering over the colour
+          v = 0.7 + 0.3 * wave(x, 1.6, 7) * wave(x, 0.9, 3); l = Math.min(0.9, l + 0.18 * twinkle(i, 1.4))
+          break
+        case 'opal':     // pastel shades around the colour, drifting slowly
+          h = b[0] + 50 * Math.sin(t * 0.35 + x * 3.2 + p); s = Math.min(s, 0.5); l = Math.max(l, 0.68)
+          break
+        case 'prism':    // the spectrum runs along the strip
+          h = x * 220 + t * 30 + p * 20; s = 1; l = 0.5
+          break
+        case 'underwater':   // turquoise to deep blue in slow waves
+          h = 180 + 40 * wave(x, 0.8, 4.2); s = 0.9; l = 0.42; v = 0.6 + 0.4 * wave(x, 1.3, 6.5)
+          break
+        case 'cosmos':   // violet and night blue, with a star now and then
+          h = 235 + 55 * wave(x, 0.4, 2.6); s = 0.85; l = 0.38 + 0.4 * twinkle(i, 0.9)
+          break
+        case 'sunbeam':  // warm gold in broad, slow bands of light
+          h = 38 + 10 * wave(x, 0.6, 3); s = 0.95; l = 0.5; v = 0.55 + 0.45 * wave(x, 0.9, 4.5)
+          break
+        case 'enchant':  // pink and lilac with sparks
+          h = 290 + 45 * wave(x, 0.7, 3.4); s = 0.8; l = 0.55 + 0.3 * twinkle(i, 1.8)
+          break
+        default:         // an effect the bridge knows but ComfyOS not: the colour breathes along the strip
+          v = 0.75 + 0.25 * wave(x, 0.8, 4)
+      }
+      const c = hslRgb(((h % 360) + 360) % 360, Math.max(0, Math.min(1, s)), Math.max(0, Math.min(1, l)))
+      const k = Math.max(0.25, Math.min(1, v))
+      out.push([c[0] * k, c[1] * k, c[2] * k].map(Math.round))
+    }
+    return out
+  }
   const stops = (cols, alpha) => {
     if (cols.length === 1) cols = [cols[0], cols[0]]
     return cols.map((c, i) => `rgba(${c[0]},${c[1]},${c[2]},${(c[3] != null ? c[3] : 1) * alpha}) ${Math.round(i / (cols.length - 1) * 100)}%`).join(',')

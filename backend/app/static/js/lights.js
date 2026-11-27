@@ -10,6 +10,7 @@
   const WHITES = [[2200, 'Kerzenlicht'], [2700, 'Warmweiß'], [4000, 'Neutral'], [6500, 'Tageslicht']]
   const SPEEDS = [[60, 'Langsam'], [20, 'Mittel'], [8, 'Schnell']]
   const COLOR_KEYS = ['kelvin', 'mirek', 'color', 'xy', 'gradient', 'gradient_xy']
+  const SLIDE_QUIET = 800   // ms after the last move of a slider in which live messages leave the lamp control alone
 
   const scenesState = () => (HO.state.overview && HO.state.overview.scenes) || { scenes: [], active: {} }
   const sceneById = id => scenesState().scenes.find(s => s.id === id)
@@ -131,8 +132,8 @@
   HO.lights.bindControl = (root, d, opts = {}) => {
     const box = root.querySelector('[data-lc]')
     if (!box) return
-    const L = d.light, c = L.caps, q = s => box.querySelector(s)
-    let pending = null, timer = null, lastSent = 0, wh = null, seg = 'all'
+    const c = d.light.caps, q = s => box.querySelector(s)
+    let L = d.light, pending = null, timer = null, lastSent = 0, wh = null, seg = 'all', slidAt = 0
     let pts = []
     // Prepare the colour points of a light strip with a gradient – from its state, otherwise filled with the current colour.
     const initPts = () => {
@@ -152,11 +153,15 @@
       try { await HO.api(`devices/${encodeURIComponent(d.id)}/command`, { method: 'POST', body: { state: st } }) } catch (e) { HO.toast(e.message, 'bad') }
     }
     // at most ~4 commands per second while dragging (Hue: max. 10/s for the whole bridge)
+    // Only a command counts as a change for the caller (opts.onChange) – drawing the control does not (fixed in 0.30.2:
+    // opening the dialog reported the old state as just tapped, and the home page then dropped the live message of a
+    // scene as an echo – the floor plan kept the lamp off until the brightness slider was moved).
     const send = (st, now) => {
       if (pending && COLOR_KEYS.some(k => k in st)) COLOR_KEYS.forEach(k => delete pending[k])
       pending = Object.assign(pending || {}, st)
       clearTimeout(timer)
       timer = setTimeout(flush, now ? 0 : Math.max(0, 260 - (Date.now() - lastSent)))
+      if (opts.onChange) opts.onChange(d)
     }
     // Draw the light control from the state of the lamp: tabs, on/off, brightness, colour or white tone, segments.
     const paint = () => {
@@ -178,7 +183,6 @@
         segs.innerHTML = pts.map((h, i) => `<button type="button" class="lc-seg ${seg === i ? 'sel' : ''}" data-lc-seg="${i}" style="background:${h}" aria-label="Segment ${i + 1}"></button>`).join('') +
           `<button type="button" class="chip ${seg === 'all' ? 'active' : ''}" data-lc-seg="all">Alle</button>`
       }
-      if (opts.onChange) opts.onChange(d)
     }
     // Change the tab of the light control; the colour wheel is only created when "Farbe" is opened for the first time.
     const showTab = t => {
@@ -190,7 +194,7 @@
     }
     // Take over the chosen colour – for a light strip for all segments or only the chosen one – and send it.
     const pickColor = (hex, final) => {
-      d.on = true
+      d.on = true; slidAt = Date.now()     // dragging on the wheel counts like a slider (live messages wait)
       if (c.gradient) {
         if (seg === 'all') pts = pts.map(() => hex); else pts[seg] = hex
         L.points = pts.map(HO.hexToXy); L.mode = 'gradient'; L.mirek = null
@@ -223,12 +227,30 @@
       if (t.dataset.lcGmode) { L.gmode = t.dataset.lcGmode; send({ gradient: pts.slice(), gradient_mode: L.gmode }, true); return paint() }
     })
     box.addEventListener('input', e => {
+      slidAt = Date.now()
       if (e.target.matches('[data-lc-bri]')) { d.on = true; d.brightness = +e.target.value; send({ brightness: d.brightness }); paint() }
       else if (e.target.matches('[data-lc-ct]')) setKelvin(+e.target.value, false)
     })
     box.addEventListener('change', e => {
+      slidAt = Date.now()
       if (e.target.matches('[data-lc-bri]')) send({ brightness: +e.target.value }, true)
       else if (e.target.matches('[data-lc-ct]')) setKelvin(+e.target.value, true)
+    })
+    /* The lamp changes while the dialog is open (since 0.30.2): a scene or an effect switches it on, another app or the
+       bridge sets it – brightness, white tone, colour wheel and segments follow the live message. Before, the slider
+       stayed where it was when the dialog opened. Not while a slider is moved (SLIDE_QUIET): the echoes of the
+       intermediate values would make it jump. The subscription ends with the dialog. */
+    const unsubscribe = HO.live.on(m => {
+      if (!box.isConnected) return setTimeout(unsubscribe, 0)
+      if (m.type !== 'device' || m.id !== d.id || pending || Date.now() - slidAt < SLIDE_QUIET) return
+      if (m.on != null) d.on = m.on
+      if (m.brightness != null) d.brightness = m.brightness
+      if (m.light) { d.light = L = Object.assign({}, m.light, { caps: m.light.caps || c }) }
+      const bri = q('[data-lc-bri]'); if (bri && d.brightness != null) bri.value = d.brightness
+      const ct = q('[data-lc-ct]'); if (ct && L.mode === 'ct' && L.mirek) ct.value = Math.round(1e6 / L.mirek / 50) * 50
+      if (c.gradient) initPts()
+      if (wh && seg === 'all') wh.set(L.mode === 'gradient' ? pts[0] : curHex(d))
+      paint()
     })
     showTab(box.dataset.tab)
   }

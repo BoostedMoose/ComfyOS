@@ -1928,8 +1928,9 @@
           if (room < 0) continue
           const shape = box ? { rot: box.rot, lw: box.lw, lh: box.lh, round: !!box.sym.round, key: pos.furniture, m: box.m, ax: box.ax, ay: box.ay } : { r: R }
           // gmode (since 0.30): how a gradient strip lays its colours out – the light follows it (weather_fx.paint)
+          // segs (since 0.30.2): pixels a running effect plays over – a gradient strip has several (HO.effectColors)
           lamps.push({ id, x: pos.x, y: pos.y, room, shape, colors, level: level(d), effect: effectOf(d),
-            gmode: (d.light && d.light.gmode) || null })
+            gmode: (d.light && d.light.gmode) || null, segs: (d.light && d.light.caps && d.light.caps.gradient) || 0 })
         }
         for (const g of own ? st.plan.groups : []) {
           const members = g.members.map(id => db[id]).filter(d => shine(d).length), room = roomOf([g.x, g.y])

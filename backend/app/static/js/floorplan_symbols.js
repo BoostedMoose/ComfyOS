@@ -44,6 +44,11 @@
       svg: '<circle cx="24" cy="24" r="11"/><path class="l" d="M16.2 16.2l15.6 15.6M31.8 16.2 16.2 31.8"/>' },
     'light-bar': { label: 'Lichtleiste', w: 40, h: 21,
       svg: '<rect x="4" y="20.5" width="40" height="7" rx="3.5"/><path class="l" d="M9.5 24h29M12 16v-2.5M24 16v-2.5M36 16v-2.5M12 32v2.5M24 32v2.5M36 32v2.5"/>' },
+    // spotlights on a rail (since 0.30.2): round heads with their lens, the rail between them
+    'spot-2': { label: 'Spots (2er)', w: 36, h: 14,
+      svg: '<rect x="12" y="22" width="24" height="4" rx="2"/><circle cx="13" cy="24" r="7"/><circle cx="35" cy="24" r="7"/><circle class="f" cx="13" cy="24" r="3.4"/><circle class="f" cx="35" cy="24" r="3.4"/>' },
+    'spot-3': { label: 'Spots (3er)', w: 44, h: 13,
+      svg: '<rect x="8" y="22" width="32" height="4" rx="2"/><circle cx="8.5" cy="24" r="6.5"/><circle cx="24" cy="24" r="6.5"/><circle cx="39.5" cy="24" r="6.5"/><circle class="f" cx="8.5" cy="24" r="3.2"/><circle class="f" cx="24" cy="24" r="3.2"/><circle class="f" cx="39.5" cy="24" r="3.2"/>' },
     // furniture
     sofa: { label: 'Sofa', w: 40, h: 20,
       svg: '<rect x="4" y="14" width="40" height="20" rx="3"/><rect class="f" x="9.5" y="20" width="14" height="11" rx="2"/><rect class="f" x="24.5" y="20" width="14" height="11" rx="2"/>' },
