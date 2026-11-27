@@ -439,7 +439,10 @@ button.stat[disabled] { cursor: default; }
 .rc-head[data-room-head] { cursor: pointer; }
 .rc-head:focus-visible { outline: 2px solid var(--accent-text); outline-offset: -2px; }
 .rc-head.lit::after, .rs-hero.lit::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: -1; background: linear-gradient(90deg, rgba(0, 0, 0, .55), rgba(0, 0, 0, .15)); }
-.rc-glow { position: absolute; top: -40%; right: -40%; bottom: -40%; left: -40%; z-index: -2; filter: blur(28px); opacity: .7; pointer-events: none; transition: background .6s ease; }
+/* The glow is a plain gradient (HO.lightGlow) far larger than the head – blurring it changed next to nothing and cost a
+   large blurred area with every change of a lamp and while scrolling (since 0.30.3 without the filter, a touch fainter
+   for the edge the blur used to thin out). */
+.rc-glow { position: absolute; top: -40%; right: -40%; bottom: -40%; left: -40%; z-index: -2; opacity: .64; pointer-events: none; }
 .rc-img { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; }
 .rc-title { flex: 1; min-width: 0; }
 .rc-title h3 { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1205,7 +1208,7 @@ body.chromeless #toasts { bottom: calc(var(--safe-b) + 16px); }
 }
 
 /* ---------- Light & scenes */
-.rg-glow, .pv-glow { position: absolute; top: -40%; right: -40%; bottom: -40%; left: -40%; z-index: -2; filter: blur(28px); opacity: .6; pointer-events: none; transition: background .6s ease; }
+.rg-glow, .pv-glow { position: absolute; top: -40%; right: -40%; bottom: -40%; left: -40%; z-index: -2; opacity: .56; pointer-events: none; }
 .rg-scene { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; color: var(--text); padding: 2px 9px;
   border-radius: 999px; background: rgba(0, 0, 0, .3); }
 .rg-scene .ic { width: 13px; height: 13px; }

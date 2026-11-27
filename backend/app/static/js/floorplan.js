@@ -1002,6 +1002,20 @@
       /* ---------- Display */
       // Write an attribute only if it changes – even writing the same value can trigger a repaint
       const setAttr = (node, name, value) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value) }
+      /* Where the SVG lies in its frame (title and wind arrow sit at its corners). Measured only when it can have moved
+         (since 0.30.3): new size of the frame or of the drawing surface, editor on or off – never with a live message.
+         Reading it right after the SVG was rewritten made the browser lay the page out in the middle of every update. */
+      let place = null
+      const placeOf = () => place || (place = { left: svg.offsetLeft, top: svg.offsetTop, width: svg.offsetWidth, frame: wrap.clientWidth })
+      let frame = null
+      // Size of the frame, likewise: read once and again when the observer reports a new size (browsers without the
+      // observer read it every time, as before).
+      const frameOf = () => {
+        if (frame && window.ResizeObserver && !st.editing) return frame
+        const now = { w: wrap.clientWidth, h: wrap.clientHeight }
+        frame = now.w && now.h ? now : null
+        return now
+      }
       let screenBasis = { w: 0, h: 0 }
       // Screen height the view is sized by. On the phone it keeps changing a little while scrolling (the
       // address bar folds in and out) – if the floor plan followed that, it would grow and shrink in the middle of scrolling,
@@ -1016,8 +1030,9 @@
       function size() {
         const { width: W, height: H } = st.plan
         if (cam) return sizeCam()
-        wrap.classList.toggle('view', !st.editing)   // before measuring: in the view the frame reaches the edge of the tile (CSS)
-        const cw = Math.max(260, wrap.clientWidth || el.clientWidth || 600)
+        // before measuring: in the view the frame reaches the edge of the tile (CSS)
+        if (wrap.classList.contains('view') === st.editing) { wrap.classList.toggle('view', !st.editing); frame = null; place = null }
+        const cw = Math.max(260, frameOf().w || el.clientWidth || 600)
         const maxH = screenHeight() * (st.editing ? 0.62 : 0.56)
         // zoom only changes the section (viewBox), the surface on the page stays the same size
         const base = Math.max(10, Math.min(cw / W, maxH / H))
@@ -1027,6 +1042,8 @@
         // it stays the same size in the middle and the section gets wider left and right (viewW in plan units) –
         // more room around the house. In the editor the frame still is exactly the plan.
         st.viewW = st.editing ? W : Math.max(W, cw / base)
+        const dim = (st.viewW * base).toFixed(0) + 'x' + (H * base).toFixed(0) + (st.editing ? 'e' : 'v')
+        if (dim !== st.dim || st.editing) { st.dim = dim; place = null }   // the surface changed: measure its place anew
         setAttr(svg, 'width', (st.viewW * base).toFixed(0))
         setAttr(svg, 'height', (H * base).toFixed(0))
         wrap.classList.toggle('zoomed', st.zoom > 1.001 && !st.editing)
@@ -1048,8 +1065,9 @@
       /* ---------- Camera: zoom 0.8× to 8× of the overall view; at most a quarter of the screen may be empty next to the plan */
       function sizeCam() {
         const { width: W, height: H } = st.plan
-        cam.cw = Math.max(200, wrap.clientWidth || window.innerWidth)
-        cam.ch = Math.max(200, wrap.clientHeight || window.innerHeight)
+        const at = frameOf()
+        cam.cw = Math.max(200, at.w || window.innerWidth)
+        cam.ch = Math.max(200, at.h || window.innerHeight)
         const fit = Math.min(cam.cw / W, cam.ch / H) * 0.9
         if (!cam.s) { cam.s = fit; cam.cx = W / 2; cam.cy = H / 2 }
         else if (cam.fit && Math.abs(fit - cam.fit) > 1e-6) cam.s *= fit / cam.fit   // rotating/resizing: keep the zoom level
@@ -1131,19 +1149,19 @@
       // A gesture begins: remember the painted state; from now on it is only moved and scaled.
       function beginLive() {
         if (live) return
-        live = { from: look(), dirty: false, mask: null, shift: null, fxStays: false }
+        live = { from: look(), dirty: false, mask: null, shift: null }
         wrap.classList.add('fp-moving')
         tip.classList.add('hidden')
         pinFx()
       }
       /* Fix the weather image to the state painted just now: its building outline (live.mask) holds until it is redrawn.
-         The weather is attached to the plot and moves along with every movement – on fast devices the canvas stays
-         in place for that and keeps drawing (fxStays, it gets the offset live.shift); on economical ones the image stands
-         still and is moved like the SVG. */
+         The weather is attached to the plot and moves along with every movement: the canvas keeps drawing at its own
+         pace with the offset live.shift and holds its image on the plan in between (weather_fx.js `follow`) – on
+         every device since 0.30.3; before, economical ones froze the image and moved it like the SVG. */
       function pinFx() {
         live.mask = null; live.shift = null
         live.mask = fxMask()
-        live.fxStays = st.fxView ? st.fxView.gesture(true) : false
+        if (st.fxView) st.fxView.gesture(true)
       }
       // Remove the transform of the gesture from plan and weather image.
       function clearTransforms() {
@@ -1163,16 +1181,13 @@
           live.mask = null; live.shift = null
           renderSVG(true)
           pinFx()
+          if (st.fxView) st.fxView.follow(true)   // the image for the freshly painted section, in this frame
           return
         }
         svg.style.transform = `translate(${t.tx.toFixed(1)}px, ${t.ty.toFixed(1)}px) scale(${t.k.toFixed(4)})`
         // the weather image covers the whole frame, the SVG can lie offset in it – hold on to the same point
         live.shift = { k: t.k, x: t.tx + svgOffset[0] * (1 - t.k), y: t.ty + svgOffset[1] * (1 - t.k) }
-        if (live.fxStays && st.fxView) st.fxView.follow()      // the weather moves with the plan in the same frame
-        else {
-          const cv = fxCanvas()
-          if (cv) cv.style.transform = `translate(${live.shift.x.toFixed(1)}px, ${live.shift.y.toFixed(1)}px) scale(${t.k.toFixed(4)})`
-        }
+        if (st.fxView) st.fxView.follow()      // the weather moves with the plan in the same frame
         if (cam) moveDots()
       }
       function moveLive(next) {
@@ -1201,7 +1216,6 @@
         const box = el.querySelector('.fp-title')
         box.classList.toggle('hidden', st.editing || !st.plan.walls.length)
         if (st.editing) return
-        if (!cam) { box.style.left = (svg.offsetLeft + 10) + 'px'; box.style.top = (svg.offsetTop + 10) + 'px' }
         const rb = roomById(), tempOf = r => { const i = rb[roomKey(r)]; return i && i.temperature != null ? i.temperature : null }
         const r = st.focus && st.plan.rooms.find(x => x.id === st.focus)
         let name, t
@@ -1212,8 +1226,15 @@
           name = (st.plan.home_name || HOME_DEFAULT) + (levels().length > 1 ? ' · ' + floorLabel(st.plan.floor) : '')
           t = ts.length ? ts.reduce((a, b) => a + b, 0) / ts.length : null
         }
+        const at = cam ? null : placeOf()
+        const html = `<b>${HO.esc(name)}${t != null ? ':' : ''}</b>${t != null ? `<span>${r ? '' : 'Ø '}${tC(t)}</span>` : ''}`
+        // written only on a change (since 0.30.3) – it runs with every live message
+        const key = [html, !!r, at ? at.left + '/' + at.top : ''].join('|')
+        if (key === st.titleKey) return
+        st.titleKey = key
+        if (at) { box.style.left = (at.left + 10) + 'px'; box.style.top = (at.top + 10) + 'px' }
         box.classList.toggle('room', !!r)
-        box.innerHTML = `<b>${HO.esc(name)}${t != null ? ':' : ''}</b>${t != null ? `<span>${r ? '' : 'Ø '}${tC(t)}</span>` : ''}`
+        box.innerHTML = html
       }
       // Highlighted room (pointed at or tapped): as a class on the finished SVG, not in the markup – otherwise the
       // image would count as changed on every change and would be rebuilt
@@ -2171,13 +2192,14 @@
         const kmh = fx ? Math.round(typeof fx.wind_kmh === 'number' ? fx.wind_kmh : (fx.wind || 0) * 80) : 0
         const on = !!fx && typeof fx.wind_dir === 'number' && kmh >= 1
         const from = on ? ((Math.round(fx.wind_dir) % 360) + 360) % 360 : 0
-        const key = on ? [from, kmh, st.plan.north, cam ? '' : svg.offsetLeft + '/' + svg.offsetTop + '/' + svg.offsetWidth].join('|') : ''
+        const at = on && !cam ? placeOf() : null
+        const key = on ? [from, kmh, st.plan.north, at ? at.left + '/' + at.top + '/' + at.width + '/' + at.frame : ''].join('|') : ''
         wrap.classList.toggle('has-wind', on)
         if (key === st.windKey) return
         st.windKey = key
         box.classList.toggle('hidden', !on)
         if (!on) return
-        if (!cam) { box.style.right = (wrap.clientWidth - svg.offsetLeft - svg.offsetWidth + 10) + 'px'; box.style.top = (svg.offsetTop + 10) + 'px' }
+        if (at) { box.style.right = (at.frame - at.left - at.width + 10) + 'px'; box.style.top = (at.top + 10) + 'px' }
         const label = `Wind aus ${COMPASS[Math.round(from / 22.5) % 16]} mit ${kmh} km/h – der Pfeil zeigt, wohin er weht`
         box.setAttribute('title', label); box.setAttribute('aria-label', label)
         box.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5M6.5 10.5 12 5l5.5 5.5"/></svg><span>${kmh} km/h</span>`
@@ -2231,8 +2253,8 @@
         maskCache = { key, val }
         return val
       }
-      // offset of the painted plan during a gesture (only if the weather image stays in place and draws along itself)
-      const fxShift = () => live && live.fxStays ? live.shift : null
+      // offset of the painted plan during a gesture (the weather image stays in its place and draws along itself)
+      const fxShift = () => live ? live.shift : null
       // Sun and moon for the effects: elevation and direction towards them in the plan (north of the plan applied).
       function fxSun() {
         const sun = sunNow(), towards = az => { const a = (st.plan.north + az) * Math.PI / 180; return [Math.sin(a), -Math.cos(a)] }
@@ -3551,6 +3573,7 @@
       let lastW = 0, lastH = 0
       const ro = window.ResizeObserver ? new ResizeObserver(() => {
         const w = wrap.clientWidth, h = wrap.clientHeight
+        place = null; frame = null
         if (Math.abs(w - lastW) > 6 || (cam && Math.abs(h - lastH) > 6)) { lastW = w; lastH = h; requestAnimationFrame(() => renderSVG()) }
       }) : null
       if (ro) ro.observe(wrap)
@@ -3566,8 +3589,10 @@
           st.effects = readPref(EFFECTS_PREF, true)   // another view may have switched the effects (since 0.30)
           if (!st.drag) render()
         },
+        // Switch the editor on or off: selection and tool start fresh, the sizes are measured anew.
         setEditing(on) {
           st.editing = on; st.sel = null; st.msel = []; st.armed = null; st.tool = 'select'; st.draft = null; st.newFloor = null
+          frame = null; place = null
           tip.classList.add('hidden'); render()
         },
         get plan() { return st.plan },
@@ -3605,7 +3630,7 @@
         // speakers – remembered per browser (`ho.fpEffects`), nothing is saved in the plan
         get effects() { return st.effects },
         toggleEffects() { st.effects = !st.effects; writePref(EFFECTS_PREF, st.effects); renderEffectsBtn(); syncFx(); return st.effects },
-        resize() { render() },
+        resize() { frame = null; place = null; render() },
         startWithAutoRooms() { st.editing = true; autoRooms(); autoPlace(); save(); render() },
         // weather of the home page (fx from /api/weather) – weather effects and building shadows follow
         setWeather(fx) {

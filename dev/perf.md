@@ -152,6 +152,61 @@ open home page).
 | hidden or out of sight: no painting at all in `update()` | the observers (visibility, intersection) kick one repaint when the canvas comes back |
 | stars no longer animate the sky | a clear night only runs while something mirrors them (puddles, hoarfrost) – see "stars only in reflections" (0.30) |
 
+### 0.30.3 – controls that answer at once, gestures without a pause, pace by cost
+
+The first pass since 0.20 that was measured in the browser before and after (27.11.2026, same machine, `v0.30.2` as a
+second checkout). Two things were learned about measuring itself:
+
+- **The browser of the tests paints without a graphics card.** There the script is the smaller part of a frame; most is
+  bringing the canvas to the screen. `dev/measure.py frontend-gpu` (new) runs with the graphics card – what a current
+  phone, tablet or PC sees. Both are given below; the software numbers are the pessimistic stand-in for weak devices.
+- **Time in the script is not the cost of a frame.** Canvas calls are only recorded; the work shows where the image is
+  needed. The self-regulation of the effects therefore measures the time until the frame is on the screen (since 0.30.3).
+
+Evening scene of the demo home (scene "Polarlicht", three more lamps, a speaker playing, rain at night; measured with a
+script of its own, the steps are now part of `dev/measure.py`):
+
+| Measurement | 0.30.2 | 0.30.3 |
+|---|---|---|
+| Brightness slider in the lamp dialog, dragged (GPU) | 347 ms CPU time per second, of it layout 158 | 41 ms, layout 4 |
+| Colour wheel dragged, plan out of view (GPU) | 207 ms per second | 150–175 ms |
+| Lamp switch on a room tile, click until painted (software) | 45–69 ms | 25–35 ms |
+| Idle, rain at night with lamps and sound (GPU) | 60 ms per second at 30 frames/s | 74–81 ms at 60 frames/s |
+| … the same (software) | 330 ms per second at 30 frames/s | 273–293 ms at 30 frames/s |
+| Idle, clear night with lamps and sound (software) | 191 ms per second at 20 frames/s | 171 ms at 20 frames/s |
+| One frame of the effects in the script, rain at night (software) | 4.7 ms | 2.0–2.2 ms |
+| … clear night (software) | 2.4 ms | 0.35–0.4 ms |
+
+`dev/measure.py` against the test home (rain, wind, heat map), desktop · tablet with a CPU throttled four times:
+
+| Measurement | 0.30.2 GPU | 0.30.3 GPU | 0.30.2 software | 0.30.3 software |
+|---|---|---|---|---|
+| Home page idle, settled | 39 · 143 ms/s at 30 frames/s | 51 · 144 ms/s at 60 · 30 frames/s | 417 · 721 ms/s | 425 · 649 ms/s |
+| Lamp switch: click until painted | 29 · 49 ms | 23 · 29 ms | 26 · 93 ms | 29 · 65 ms |
+| 20 live messages | 345 · 1485 ms (0 · 21 stutters) | 338 · 1165 ms (0 · 4 stutters) | 1873 · 3536 ms | 1961 · 4089 ms |
+| Pan in full screen, per step | 1.6 · 8.3 ms | 2.3 · 8.1 ms | 8.8 · 20.1 ms (16 · 13 stutters) | 18.9 · 29.2 ms (23 · 28 stutters) |
+| Zoom in full screen, per step | 2.6 · 11.3 ms | 4.3 · 11.9 ms | 13.7 · 20.0 ms (9 · 4 stutters) | 30.6 · 40.5 ms (56 · 19 stutters) |
+
+**Reading, without gloss:** with a graphics card everything is as cheap as before or cheaper, at twice the frames of
+the effects, and the controls answer faster – most on a slow processor. Without one the picture is mixed: the controls
+gained, idle is about the same, and **panning and zooming cost more than in 0.30.2**. The reason is the wish behind this
+pass: 0.30.2 was cheap there because it froze the effects during a gesture on such devices (11 frames of the effects
+in a pan – now the animation keeps running) and drew the new section afterwards. The software rows for pan and zoom
+were measured before the last change (the pace of a gesture starts from the measured cost at rest, `GESTURE_GUESS`);
+the operator stopped the measuring to try it on the real devices, so that last state is **not measured**. If a real
+weak device stutters while panning, the levers are `GESTURE_SHARE` and `GESTURE_MIN` in `weather_fx.js`.
+
+| Change | What it does |
+|---|---|
+| room tiles replaced one by one (`patchRooms`) | one lamp no longer rewrites every room and makes the tile grid measure and distribute all tiles |
+| floor plan before the blocks, sizes kept (`frameOf`, `placeOf`, `stale`) | no layout of the page forced in the middle of an update |
+| blocks below a dialog at most every 200 ms during a drag (`scheduleDrag`) | the browser no longer layers and paints the whole page per pointer move |
+| glow of the room heads without `filter: blur` | no large blurred area per change and while scrolling |
+| first group of margin layers straight onto the main image (`direct`, `under`) | one canvas less filled, copied and cleared per frame |
+| whole cost of a frame measured (`probe`), fast pace only when proven cheap | 60 frames/s where it costs little, nothing more where it does not |
+| gestures: the image is held on the plan by a transform between frames (`track`), pace by cost | the effects never pause, never lag behind the plan and are not drawn afterwards |
+| `LAMP_EASE` 0.45 → 0.12 at the quick pace | the plan follows the colour wheel at once |
+
 ## Helper program of the Matter plugin (0.21)
 
 Measured on 19.11.2026 on the development Pi (Raspberry Pi 5, 8 GB) with Node 24.22.3 and the bundled

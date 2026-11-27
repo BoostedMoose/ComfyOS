@@ -161,27 +161,35 @@
       pending = Object.assign(pending || {}, st)
       clearTimeout(timer)
       timer = setTimeout(flush, now ? 0 : Math.max(0, 260 - (Date.now() - lastSent)))
-      if (opts.onChange) opts.onChange(d)
+      // second argument (since 0.30.3): true while a slider or the colour wheel is still being dragged
+      if (opts.onChange) opts.onChange(d, !now)
     }
     // Draw the light control from the state of the lamp: tabs, on/off, brightness, colour or white tone, segments.
     const paint = () => {
       const tab = box.dataset.tab
       box.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== tab })
       box.querySelectorAll('[data-lc-tab]').forEach(b => b.classList.toggle('active', b.dataset.lcTab === tab))
-      q('[data-lc-power]').classList.toggle('on', !!d.on)
-      q('[data-lc-power]').setAttribute('aria-pressed', !!d.on)
-      q('[data-lc-val]').textContent = d.on ? (d.brightness || 100) + ' %' : 'Aus'
+      const power = q('[data-lc-power]')
+      power.classList.toggle('on', !!d.on)
+      power.setAttribute('aria-pressed', !!d.on)
+      const val = d.on ? (d.brightness || 100) + ' %' : 'Aus', valBox = q('[data-lc-val]')
+      if (valBox.textContent !== val) valBox.textContent = val
       const col = HO.lightColors(Object.assign({}, d, { on: true, online: true }))
-      box.style.setProperty('--lc-color', col.length ? rgbCss(col[0]) : 'var(--text)')
-      q('[data-lc-bri]').style.background = `linear-gradient(90deg, var(--card-3), ${col.length > 1 ? col.map(rgbCss).join(',') : col.length ? rgbCss(col[0]) : 'var(--text)'})`
+      // the colour of the lamp on the button itself (since 0.30.3, before as a variable on the whole control: every
+      // pointer move on the colour wheel then made the browser compute the styles of everything in the dialog anew)
+      power.style.setProperty('--lc-color', col.length ? rgbCss(col[0]) : 'var(--text)')
+      const track = `linear-gradient(90deg, var(--card-3), ${col.length > 1 ? col.map(rgbCss).join(',') : col.length ? rgbCss(col[0]) : 'var(--text)'})`
+      const bri = q('[data-lc-bri]')
+      if (bri.__track !== track) { bri.style.background = track; bri.__track = track }
       box.classList.toggle('is-off', !d.on)
       const kv = q('[data-lc-kval]'); if (kv) kv.textContent = L.mode === 'ct' && L.mirek ? Math.round(1e6 / L.mirek / 50) * 50 + ' K' : ''
       box.querySelectorAll('[data-lc-fx]').forEach(b => b.classList.toggle('active', b.dataset.lcFx === L.effect))
       box.querySelectorAll('[data-lc-gmode]').forEach(b => b.classList.toggle('active', b.dataset.lcGmode === (L.gmode || 'interpolated_palette')))
       const segs = q('[data-lc-segs]')
       if (segs) {
-        segs.innerHTML = pts.map((h, i) => `<button type="button" class="lc-seg ${seg === i ? 'sel' : ''}" data-lc-seg="${i}" style="background:${h}" aria-label="Segment ${i + 1}"></button>`).join('') +
+        const html = pts.map((h, i) => `<button type="button" class="lc-seg ${seg === i ? 'sel' : ''}" data-lc-seg="${i}" style="background:${h}" aria-label="Segment ${i + 1}"></button>`).join('') +
           `<button type="button" class="chip ${seg === 'all' ? 'active' : ''}" data-lc-seg="all">Alle</button>`
+        if (segs.__drawn !== html) { segs.innerHTML = html; segs.__drawn = html }   // written only on a change (it runs per pointer move)
       }
     }
     // Change the tab of the light control; the colour wheel is only created when "Farbe" is opened for the first time.

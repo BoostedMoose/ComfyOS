@@ -4,6 +4,52 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30.3 – a pass for speed: gestures without a pause, pace by cost, less work per frame
+
+Measured in the browser, before and after: `dev/perf.md`, "0.30.3". Nothing looks different – except that it moves.
+
+- **A gesture never stops the effects** (`weather_fx.js` `gesture`, `follow`, `track`): up to 0.30.2 economical devices
+  (tier "low" or self-regulation step ≥ 2) froze the canvas for a gesture, moved it as a whole and drew the new section
+  afterwards – empty edges while panning, a jump at the end. Now every device does the same: the animation keeps its
+  pace, `follow()` draws for the new position of the plan when a frame is due (during a gesture at least at the quick
+  pace of the step), and between two frames `track()` holds the image drawn last on the plan by a CSS transform (the
+  difference between the offset it was drawn with, `drawnShift`, and the offset now). `draw()` clears that transform.
+  When the gesture ends `gesture(false)` draws the settled section at once. `floorplan.js` no longer moves the canvas
+  itself (`live.fxStays` is gone, `fxShift` always returns the offset during a gesture).
+  **A frame during a gesture is dearer than at rest** where no graphics card helps (the moved plan has to be put
+  together with the canvas anew – measured about 30–40 ms instead of 9 ms). So the pace of a gesture is set by cost
+  (`intervalNow`): at most `GESTURE_SHARE` (0.3) of the time for the frames, from the measured cost of a gesture frame
+  (`movingMs`; before the first one `GESTURE_GUESS` × a frame at rest), and fewer frames whenever the frames of the
+  screen itself come later than at rest (`feel`, `GESTURE_LATE`), never below `GESTURE_MIN` (2/s). Frames of a gesture
+  do not step the device down. `stats.moveFps`/`moveMs` show what was found.
+- **Running before it is seen:** the intersection observer has a margin of 300 px – the animation already runs when the
+  plan scrolls into view.
+- **Pace by cost** (`FAST`, `SHOW_LIMIT`, `FAST_LIMIT`): the fast pace is 60 frames/s while something falls or flies
+  and 30 for a calm image (before 30/12). The self-regulation now measures the whole cost of a frame: the script, and
+  through a message posted from the frame (`probe`, `shownMs`) the time the browser needs afterwards to paint it and
+  hand the canvas over. A view starts at the plain pace of step 0 and switches to the fast one after its first check
+  (30 frames) if both together would stay below `FAST_LIMIT` (0.2) of the fast frame interval; later views start fast
+  (`fastOk` true). It is given up for all views until the page is loaded again as soon as it gets dearer. Stepping back
+  as before (`LAG_LIMIT`, `COST_LIMIT` for the script) or when both together exceed `SHOW_LIMIT` (0.5).
+  `stats.fast` says whether the view drawn last runs fast. Without a graphics card the transfer of the canvas is most
+  of a frame – such a device stays at the pace of 0.30.2 and only gets cheaper.
+- **Wind lines keep their length:** the tail gets a point every `TRAIL_STEP` (1/30 s), not per frame.
+- **The first group of margin layers needs no second image:** ground, puddles, hoarfrost and sunlight were drawn onto the
+  margin canvas, punched out and copied to the main image – a whole canvas filled, copied and cleared per frame. Nothing
+  lies below them except the daylight, so they are drawn straight onto the main image, the margin is punched out there
+  and the daylight is laid in behind (`direct`, `under`, `destination-over`). Same image; the script part of a frame
+  fell from 4.6 to 2.0 ms in rain at night and from 2.4 to 0.4 ms in a clear night (software rendering; the whole
+  time of the main thread fell less, see `dev/perf.md` – without a graphics card the work moves to the hand-over).
+  The later groups (sun rays, wind, precipitation) lie above clouds and fog and still use the margin canvas.
+- **Light of a lamp answers at once:** `LAMP_EASE` 0.45 → 0.12 (a time constant: 95 % after 0.36 s instead of 1.35 s),
+  easing runs at the quick pace (`lampsEasing` in `fpsNow`), and the first frame of a change already moves (it counted
+  as no time before, so the change began one calm frame – up to 83 ms – late).
+- **No measuring per message:** the canvas reads its size only when the resize observer reports one (`stale`); the
+  floor plan reads the size of its frame and the place of the SVG in it only after a resize or an editor switch
+  (`frameOf`, `placeOf` – title and wind arrow use them) and writes the title only on a change. Before, every live
+  message forced the browser to lay the page out several times in the middle of the script.
+- **Tests:** `ui_camera` (the gesture leaves no transform behind – also on the canvas), `ui_home` unchanged.
+
 ## Since 0.30.2 – Hue effects over the pixels of a strip, spotlights
 
 - **Effects on gradient strips:** a lamp row carries `segs` (`caps.gradient`, `indoorNow`). With a running effect and

@@ -3,6 +3,7 @@
     1  view (home page, without full screen): + zooms in, Ctrl+mouse wheel zooms around the pointer, the mouse wheel alone
        scrolls the page, dragging pans, "Ansicht zurücksetzen" restores the overall view
     2  panning does not repaint: during the gesture the viewBox stays, the image moves along by a transform
+       (since 0.30.3: afterwards neither the plan nor the effect canvas keeps one)
     3  tapping in the zoomed plan still opens the device; dragging opens nothing
     4  full screen: the mouse wheel zooms around the pointer, dragging pans, "Ganzen Grundriss zeigen" resets
     5  two fingers zoom in the view (touch); one finger on the plan that is not zoomed does not change it
@@ -113,6 +114,10 @@ def desktop(p):
     check(counts["boxes"] <= 2 and counts["builds"] == 0, f"2 panning repaints: {counts}")
     check(page.locator(".fp-wrap.fp-moving").count() == 0 and page.evaluate("s => document.querySelector(s).style.transform", plan) == "",
           "2 the transform stays after the gesture")
+    # since 0.30.3 the effect canvas is held on the plan by a transform between two of its frames (weather_fx.js
+    # `track`) – at rest it must not carry one either, or the effects would lie beside the plan
+    check(page.evaluate("() => { const c = document.querySelector('#fpHost canvas.fp-fx'); return c ? c.style.transform : '' }") == "",
+          "2 the effect canvas keeps a transform after the gesture")
 
     # 3) tapping in the zoomed plan opens the device; dragging has opened nothing
     check(page.locator(".sheet-bg").count() == 0, "3 dragging opened a dialog")

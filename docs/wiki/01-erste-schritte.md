@@ -49,7 +49,7 @@ Keine Lust zu zeichnen? Kennt ein Plugin schon Räume (etwa die Home Base), biet
 
 ## 5. Räume zuordnen
 
-Ein Gerät gehört zu dem Raum, in dem es im Grundriss steht. Alternativ wählst du den Raum im Gerätemenü. Ist eine Home Base verbunden, schreibt ComfyOS Räume und Zuordnungen auch dorthin – die Magenta-App zeigt dann dieselben Räume.
+Ein Gerät gehört zu dem Raum, in dem es im Grundriss steht; das Gerätemenü nennt den Raum nur. Ist eine Home Base verbunden, schreibt ComfyOS Räume und Zuordnungen auch dorthin – die Magenta-App zeigt dann dieselben Räume.
 
 ## Wie es weitergeht
 

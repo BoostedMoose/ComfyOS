@@ -2,6 +2,10 @@
 
     python dev/measure.py backend [path-to-comfyos]     # on the Pi: response times, device queries, load when idle
     python dev/measure.py frontend [path-to-comfyos]    # on Windows (Playwright): frame times, live messages
+    python dev/measure.py frontend-gpu [path]           # the same with the graphics card of the machine (see below)
+
+The browser of the tests paints without a graphics card (software) – a stand-in for weak devices, where bringing a
+frame to the screen costs most. `frontend-gpu` starts it with the graphics card: what a current phone, tablet or PC sees.
 
 Measured against the demo home (tests/support/world_demo.py) – no real devices, no internet.
 With a second checkout as the path an older state can be measured (`git worktree add <folder> <tag>`).
@@ -12,6 +16,7 @@ from __future__ import annotations
 import statistics
 import sys
 import time
+import math
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -94,6 +99,18 @@ FRAME_JS = """() => {
 }"""
 FRAME_STOP_JS = "() => { window.__framesOn = false; return window.__frames }"
 SLOW_FRAME = 25.0        # ms – from here a frame counts as a stutter (60 frames per second would be 16.7 ms)
+GPU_ARGS = ["--enable-gpu", "--ignore-gpu-blocklist", "--use-angle=d3d11"]     # frontend-gpu: paint with the graphics card
+# Click the first switch that matches and report the time until the page has painted its new state (since 0.30.3).
+TOGGLE_JS = """(sel) => new Promise(res => {
+  const b = document.querySelector(sel); if (!b) return res(null)
+  const was = b.getAttribute('aria-pressed'), t0 = performance.now(); b.click()
+  const look = () => { const n = document.querySelector(sel)
+    if (n && n.getAttribute('aria-pressed') !== was) requestAnimationFrame(() => setTimeout(() => res(performance.now() - t0), 0))
+    else if (performance.now() - t0 > 3000) res(null)
+    else requestAnimationFrame(look) }
+  look() })"""
+COLOUR_LAMPS_JS = """() => HO.state.overview.devices.filter(d => d.kind === 'light' && d.online && d.light && d.light.caps && d.light.caps.color
+  && document.querySelector('#fpHost .fp-dev[data-kind="dev"][data-id="' + d.id + '"]')).map(d => d.id)"""
 
 
 class Probe:
@@ -162,7 +179,7 @@ def frontend() -> None:
 
     def measure(playwright, label, rate, **ctx_args) -> dict[str, str]:
         """All measurements in one browser. Returns {measurement: value as text}."""
-        browser = playwright.chromium.launch()
+        browser = playwright.chromium.launch(args=GPU_ARGS if MODE == "frontend-gpu" else [])
         ctx = browser.new_context(**ctx_args)
         ctx.add_cookies([{"name": auth.COOKIE, "value": token, "url": base}])
         page = ctx.new_page()
@@ -188,10 +205,52 @@ def frontend() -> None:
             f"{idle['slow']} Ruckler in 4 s")
         # what one frame of the effects costs in the script (since 0.28: moving averages of weather_fx.js) – all of it,
         # the inside layer (window light, lamps, sound) and the step of the self-regulation
+        frames0 = page.evaluate("() => HO.weatherFx ? HO.weatherFx.stats.frames : 0")
+        page.wait_for_timeout(2000)
         fx = page.evaluate("() => HO.weatherFx ? { all: HO.weatherFx.stats.drawMs, inside: HO.weatherFx.stats.indoorMs,"
-                           " step: HO.weatherFx.stats.step, lamps: HO.weatherFx.stats.lamps } : null")
+                           " step: HO.weatherFx.stats.step, lamps: HO.weatherFx.stats.lamps, frames: HO.weatherFx.stats.frames,"
+                           " fast: !!HO.weatherFx.stats.fast } : null")
         out["Effects: one frame in the script"] = (
-            f"{fx['all']:.1f} ms, davon innen {fx['inside']:.1f} ms · Stufe {fx['step']} · {fx['lamps']} Lampen" if fx else "–")
+            f"{fx['all']:.1f} ms, davon innen {fx['inside']:.1f} ms · {(fx['frames'] - frames0) / 2:.0f} Bilder/s · Stufe {fx['step']}"
+            f"{' (schneller Takt)' if fx['fast'] else ''} · {fx['lamps']} Lampen" if fx else "–")
+
+        # controls (since 0.30.3): a lamp switch on a room tile – time from the click until the new state is painted
+        waits = []
+        for _ in range(6):
+            took = page.evaluate(TOGGLE_JS, "#devBox [data-lt-toggle]")
+            if took is not None:
+                waits.append(took)
+            page.wait_for_timeout(900)
+        out["Lampe auf der Raumkachel schalten: Klick bis Bild"] = f"{statistics.median(waits):.0f} ms (längste {max(waits):.0f} ms)" if waits else "–"
+
+        # … and the colour wheel in the dialog of a lamp of the floor plan, the plan in view: 120 pointer moves
+        page.evaluate("() => window.scrollTo(0, 0)")
+        lamps = page.evaluate(COLOUR_LAMPS_JS)
+        if lamps:
+            page.click(f'#fpHost .fp-dev[data-id="{lamps[0]}"]')
+            page.wait_for_selector(".sheet-bg [data-lc]")
+            if page.locator('.sheet-bg [data-lc-tab="color"]').count():
+                page.click('.sheet-bg [data-lc-tab="color"]')
+            page.wait_for_selector(".sheet-bg [data-lc-wheel] canvas")
+            page.wait_for_timeout(600)
+            wheel_box = page.locator(".sheet-bg [data-lc-wheel]").bounding_box()
+            mid_x, mid_y = wheel_box["x"] + wheel_box["width"] / 2, wheel_box["y"] + wheel_box["height"] / 2
+            radius = min(wheel_box["width"], wheel_box["height"]) * 0.33
+
+            def colour():
+                page.mouse.move(mid_x + radius, mid_y)
+                page.mouse.down()
+                for i in range(1, 121):
+                    angle = i / 120 * math.tau
+                    page.mouse.move(mid_x + radius * math.cos(angle), mid_y + radius * math.sin(angle))
+                    page.wait_for_timeout(16)
+                page.mouse.up()
+                page.wait_for_timeout(400)
+            out["Farbrad ziehen (120 Schritte, Grundriss sichtbar)"] = per_step(probe.run(colour), 120)
+            page.click(".sheet-bg [data-close]")
+            page.wait_for_timeout(1500)      # the last colour has arrived and eased in
+        else:
+            out["Farbrad ziehen (120 Schritte, Grundriss sichtbar)"] = "–"
 
         # Live messages: 20 state changes of a lamp. Given is the whole CPU time in this period –
         # next to it what the same period costs when idle (the difference is the messages).
@@ -251,7 +310,8 @@ def frontend() -> None:
                          has_touch=True)
     server.should_exit = True
     stamp = time.strftime("%d.%m.%Y %H:%M")
-    print(f"\n| Messung (Frontend, Chromium, {stamp}) | Desktop 1366×900 | Tablet 1024×768 @2x, Prozessor 4× gedrosselt |")
+    how = "mit Grafikkarte" if MODE == "frontend-gpu" else "ohne Grafikkarte"
+    print(f"\n| Messung (Frontend, Chromium {how}, {stamp}) | Desktop 1366×900 | Tablet 1024×768 @2x, Prozessor 4× gedrosselt |")
     print("|---|---|---|")
     for name in desktop:
         print(f"| {name} | {desktop[name]} | {tablet[name]} |")
@@ -259,7 +319,7 @@ def frontend() -> None:
 
 if MODE == "backend":
     backend()
-elif MODE == "frontend":
+elif MODE in ("frontend", "frontend-gpu"):
     frontend()
 else:
     sys.exit(__doc__)

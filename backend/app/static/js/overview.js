@@ -15,7 +15,13 @@
   let board = null, widgetDoc = null               // the mounted widget view and (as a promise) its stored pages (GET /api/widgets)
 
   const greeting = () => { const h = new Date().getHours(); return h < 11 ? 'Guten Morgen' : h < 18 ? 'Guten Tag' : 'Guten Abend' }
-  const dateLong = () => new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })
+  let dateShown = ['', '']
+  // the date in words – formatted once per day, not with every live message (since 0.30.3)
+  const dateLong = () => {
+    const now = new Date(), day = now.toDateString()
+    if (dateShown[0] !== day) dateShown = [day, now.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })]
+    return dateShown[1]
+  }
 
   /* Home page from top to bottom (since 0.19.2): header without a tile with greeting and date (heroHTML, in
      #heroBox – like the heads of Flow, heating schedule and scenes; the connections are a pill in the top bar), then the main tile with the
@@ -27,7 +33,12 @@
   // Title in the top bar: "ComfyOS" on the phone, greeting and date on the desktop (the sidebar already names ComfyOS)
   function setTitle() {
     const t = document.getElementById('pageTitle')
-    if (t && mode === 'home') t.innerHTML = `<span class="pt-short">ComfyOS</span><span class="pt-long"><span class="pt-greet">${greeting()}</span>${dateLong()}</span>${HO.demoTitle()}`
+    if (!t || mode !== 'home') return
+    const html = `<span class="pt-short">ComfyOS</span><span class="pt-long"><span class="pt-greet">${greeting()}</span>${dateLong()}</span>${HO.demoTitle()}`
+    // written only on a change (it runs with every live message); another page may have written the title meanwhile
+    if (t.__homeTitle === html && t.querySelector('.pt-long')) return
+    t.innerHTML = html
+    t.__homeTitle = html
   }
   // Block "Zuhause / Abwesend": the toggle and below it the active heating routine.
   function homeHTML(ov) {
@@ -433,8 +444,13 @@
       data-name="${HO.esc(n)}" title="${on ? 'Alle Lampen im Raum ausschalten' : 'Alle Lampen im Raum einschalten'}" aria-label="Licht ${HO.esc(n)}"></button>`
   }
 
-  // Block "Räume und Geräte": room tiles by the chosen filter, per room temperature, light and device tiles.
-  function devicesHTML(ov) {
+  /* Block "Räume und Geräte": room tiles by the chosen filter, per room temperature, light and device tiles.
+     roomCards() returns the tiles in the order of the page as [id of the tile, HTML]. Since 0.30.3 the home page
+     remembers what it wrote per tile (roomsDrawn, roomsKey): a change rewrites only the tiles it touches (patchRooms)
+     – before, one lamp that switched rewrote every room and made the tile grid measure and distribute all of them. */
+  let roomsDrawn = {}, roomsKey = ''
+  // The room tiles of the page in their order: [id of the tile, its HTML].
+  function roomCards(ov) {
     const match = d => filter === 'all' ? true : filter === 'heat' ? ['thermostat', 'sensor'].includes(d.kind)
       : filter === 'power' ? ['light', 'switch', 'media'].includes(d.kind) : filter === 'contact' ? ['contact', 'motion', 'smoke', 'cover', 'sensor', 'presence'].includes(d.kind)
         : HO.devIssues(d).length > 0
@@ -447,8 +463,47 @@
     const rank = n => { const i = order.indexOf(groups[n].room_id); return i < 0 ? order.length : i }
     const names = Object.keys(groups).sort((a, b) => (a === 'Nicht zugeordnet') - (b === 'Nicht zugeordnet')
       || rank(a) - rank(b) || HO.byName(a, b))
-    const body = names.map(n => roomCardHTML(n, groups[n], ov, rooms[groups[n].room_id])).join('')
-    return body || `<div class="card empty">${HO.icon('device')}<div>Keine Geräte in dieser Auswahl.</div></div>`
+    return names.map(n => [roomTileId(groups[n].room_id), roomCardHTML(n, groups[n], ov, rooms[groups[n].room_id])])
+  }
+  const ROOMS_EMPTY = `<div class="card empty">${HO.icon('device')}<div>Keine Geräte in dieser Auswahl.</div></div>`
+  // The whole block as HTML (first drawing of the page, and whenever the set of tiles changes); remembers every tile.
+  function devicesHTML(ov, cards) {
+    cards = cards || roomCards(ov)
+    roomsDrawn = {}
+    for (const [id, html] of cards) roomsDrawn[id] = html
+    roomsKey = cards.map(c => c[0]).join('|')
+    return cards.map(c => c[1]).join('') || ROOMS_EMPTY
+  }
+  // Bring the block up to date: only the tiles whose content changed are replaced, in their place in the grid – the
+  // others, their scroll positions and the distribution over the columns stay untouched. A tile the user tapped or
+  // moved a slider in is written in any case (its state no longer comes from the HTML written last). If rooms were
+  // added, removed or reordered, the block is written as a whole and the grid distributes anew.
+  function patchRooms(box, ov) {
+    if (!box) return false
+    if (!box.__roomsWatched) {
+      box.__roomsWatched = true
+      const touched = e => { const card = e.target.closest && e.target.closest('.room-card'); if (card) card.__touched = true }
+      ;['click', 'input', 'change'].forEach(type => box.addEventListener(type, touched, true))
+    }
+    const cards = roomCards(ov), key = cards.map(c => c[0]).join('|')
+    const els = cards.map(c => document.getElementById(c[0]))
+    const same = key === roomsKey && new Set(cards.map(c => c[0])).size === cards.length && els.every(el => el && box.contains(el))
+    if (!same) {
+      box.__html = null      // the block as a whole, in any case: single tiles may have been replaced since
+      HO.setHTML(box, devicesHTML(ov, cards))
+      if (rgrid) rgrid.refresh()
+      return true
+    }
+    let wrote = false
+    cards.forEach(([id, html], i) => {
+      const el = els[i]
+      if (roomsDrawn[id] === html && !el.__touched) return
+      el.insertAdjacentHTML('afterend', html)
+      el.parentNode.removeChild(el)
+      roomsDrawn[id] = html
+      wrote = true
+    })
+    return wrote
   }
 
   /* Room tiles (since 0.19.3): columns (1–3, chosen per device), distribution and "Anordnen" as on the System page
@@ -733,6 +788,7 @@
   HO.blocks.register('media', { title: 'Wiedergabe', icon: 'media', needs: ['playing'], render: ctx => HO.media.blockHTML(ctx.overview) })
   HO.blocks.register('rooms', {
     title: 'Räume und Geräte', icon: 'layers', render: ctx => devicesHTML(ctx.overview),
+    patch: (el, ctx) => patchRooms(el, ctx.overview),   // only the tiles that changed (since 0.30.3)
     after: () => { if (rgrid) rgrid.refresh() }      // new tiles: bring the grid up to date
   })
   // block -> its element in the frame of the home page, in the order of the page
@@ -755,16 +811,18 @@
       return
     }
     const ctx = { overview: ov, page }
+    // the floor plan first (since 0.30.3): it measures its frame, and measuring after the blocks were rewritten would
+    // make the browser lay the whole page out in the middle of the script – and once more for the frame
+    if (fp) fp.update({ devices: ov.devices, rooms: ov.rooms, plan: ov.floorplan, heatRange: ov.heat_range })
     for (const [id, selector] of HOME_BLOCKS) {
       // rooms: do not rewrite under the finger (a slider is being dragged) and not while arranging
       if (id === 'rooms' && (sliding || (rgrid && rgrid.arranging))) continue
       if (id === 'media' && sliding) continue     // the volume is being dragged right now
       if (id === 'media' && HO.media.choosing(page.querySelector(selector))) continue     // the list of favourites is open
-      HO.blocks.draw(id, page.querySelector(selector), ctx)
+      HO.blocks.draw(id, page.querySelector(selector), ctx)     // rooms: tile by tile (its `patch`, since 0.30.3)
     }
     setTitle()
     renderWarn()   // open windows change the hint
-    if (fp) fp.update({ devices: ov.devices, rooms: ov.rooms, plan: ov.floorplan, heatRange: ov.heat_range })
     if (HO.lights.onData) HO.lights.onData()
   }
   let sliding = false
@@ -801,6 +859,29 @@
     rafPending = true
     requestAnimationFrame(() => { rafPending = false; partial() })
   }
+  /* A control in a dialog is being dragged (colour wheel, brightness – since 0.30.3): the floor plan follows in every
+     frame, its light is what one looks at; the blocks of the page lie dimmed below the dialog and follow at most every
+     DRAG_BLOCKS ms. Rewriting them per pointer move made the browser layer and paint the whole page each time – the
+     drag itself stuttered. Widget view and full screen draw as before (there the plan is part of partial()). */
+  const DRAG_BLOCKS = 200
+  let planPending = false, dragTimer = 0
+  // Draw for a control that is being dragged: the floor plan in the next frame, the blocks a little later.
+  function scheduleDrag() {
+    if (homeView === 'widgets' || mode === 'plan' || !fp) return schedulePartial()
+    if (!planPending) {
+      planPending = true
+      requestAnimationFrame(() => {
+        planPending = false
+        const ov = HO.state.overview
+        if (fp && ov && mode !== 'plan') fp.update({ devices: ov.devices, rooms: ov.rooms, plan: ov.floorplan, heatRange: ov.heat_range })
+      })
+    }
+    if (!dragTimer) dragTimer = setTimeout(() => { dragTimer = 0; schedulePartial() }, DRAG_BLOCKS)
+  }
+  /* Light values set by hand hold against older live messages (since 0.30.3): while a colour or brightness is dragged
+     the lamp answers with the values of a moment ago – taking them over made the light in the plan jump back and forth.
+     For ADJUST_HOLD ms after the last own change `light` and `brightness` of that lamp are not taken from the stream. */
+  const ADJUST_HOLD = 1200, adjusted = {}
   const refreshSoon = HO.debounce(() => refresh(true), 400)
   // after a motion redraw once when the afterglow has expired
   let motionTimer = null
@@ -852,7 +933,9 @@
         if (Date.now() - o.at < HOLD_MS) return
         delete overrides[m.id]   // after that: a real change from outside
       }
+      const own = (adjusted[m.id] || 0) > Date.now()     // just set by hand here: older light values do not count
       for (const k of HO.LIVE_FIELDS) {
+        if (own && (k === 'light' || k === 'brightness')) continue
         if (m[k] !== undefined && (m[k] !== null || k === 'alarm' || k === 'locked')) d[k] = m[k]
       }
       trackMotion([d])
@@ -971,22 +1054,6 @@
     return refresh(true)
   }
 
-  // Room selection: rooms of the floor plan (master), plus rooms of the Home Base that are not in the floor plan (yet)
-  function roomOptions() {
-    const ov = HO.state.overview, plan = ov.floorplan || {}, info = Object.fromEntries((ov.rooms || []).map(r => [r.room_id, r]))
-    const opts = [], seen = new Set()
-    for (const r of HO.floorplan.roomsOf(plan)) {
-      const key = r.room_id || 'plan:' + r.id
-      if (seen.has(key)) continue
-      seen.add(key); opts.push({ key, name: (info[key] && info[key].name) || r.name, plan: true })
-    }
-    for (const r of ov.rooms || []) {
-      if (!r.room_id || seen.has(r.room_id) || String(r.room_id).startsWith('plan:')) continue
-      seen.add(r.room_id); opts.push({ key: r.room_id, name: r.name, plan: false })
-    }
-    return opts.sort((a, b) => HO.byName(a.name, b.name))
-  }
-
   // Dialog "Noch nicht übertragen": room changes the hub does not know yet, with "Jetzt übertragen".
   function pendingSheet() {
     const p = HO.state.overview.room_pending || {}
@@ -1095,16 +1162,15 @@
         <p class="tiny muted" style="margin:0 0 14px">Die Sperre wirkt nur in ComfyOS. Ein Wandschalter, die Hue-App oder die Magenta-App können das Gerät weiter schalten.</p>`
     }
     const vals = (d.values || []).map(v => `<dt>${HO.esc(v.label)}</dt><dd>${HO.esc(v.state)}</dd>`).join('')
-    const ropts = roomOptions()
-    if (d.room_id && !ropts.some(o => o.key === d.room_id)) ropts.unshift({ key: d.room_id, name: d.room })
     ctl += `<label class="field" style="margin-bottom:14px"><span>Name</span>
       <input type="text" id="devName" value="${HO.esc(d.custom_name || d.name)}" maxlength="80" autocomplete="off">
       ${d.custom_name ? '<span class="hint">Individueller Name – <a href="#" id="devNameReset">zurücksetzen</a></span>' : ''}</label>`
-    ctl += `<label class="field" style="margin-bottom:14px"><span>Raum</span><select id="devRoom">
-        ${d.room_id ? '' : '<option value="" selected>— nicht zugeordnet —</option>'}
-        ${ropts.map(o => `<option value="${HO.esc(o.key)}" ${o.key === d.room_id ? 'selected' : ''}>${HO.esc(o.name)}${o.plan ? '' : ' (nicht im Grundriss)'}</option>`).join('')}</select>
+    // the room is only named here (since 0.30.3, wish of the operator): a device is assigned in the floor plan alone
+    ctl += `<div class="field" style="margin-bottom:14px"><span>Raum</span>
+      <div id="devRoom">${d.room_id ? HO.esc(d.room || '') : '<span class="muted">Nicht zugeordnet</span>'}</div>
+      <span class="hint">Zuordnen im Grundriss: das Gerät dort in seinen Raum setzen.</span>
       ${d.room_pending ? `<span class="hint" style="color:var(--warn)">${HO.esc(hubName())}: noch in „${HO.esc(d.hb_room || 'kein Raum')}" – wird beim nächsten Übertragen nachgezogen.</span>` : ''}
-      ${d.local_room && HO.roomHub() ? `<span class="hint">Nur in ComfyOS gespeichert – ${HO.esc(hubName())} kennt dieses Gerät nicht.</span>` : ''}</label>`
+      ${d.local_room && HO.roomHub() ? `<span class="hint">Nur in ComfyOS gespeichert – ${HO.esc(hubName())} kennt dieses Gerät nicht.</span>` : ''}</div>`
     const issues = HO.devIssues(d)
     // loads of the floor plan that hang on this device (since 0.30): say so – switching the device drives them
     const loads = HO.floorplan.loadsOf(HO.state.overview.floorplan).filter(l => l.device_id === d.id)
@@ -1127,9 +1193,10 @@
       box.outerHTML = pluginActs.map((a, i) => `<button class="btn sm${a.danger ? (d.link_missing ? ' danger' : ' ghost danger') : ''}" data-plugin-act="${i}" data-action-key="${HO.esc(a.key)}">${a.icon ? HO.icon(a.icon, 'sm') + ' ' : ''}${HO.esc(a.label)}</button>`).join('')
     }).catch(() => { })
     if (HO.lights.controllable(d)) {
-      HO.lights.bindControl(s.el, d, { onChange: () => {
+      HO.lights.bindControl(s.el, d, { onChange: (dev, dragging) => {
         overrides[d.id] = { on: d.on, at: Date.now(), until: Date.now() + 4000 }
-        schedulePartial()
+        adjusted[d.id] = Date.now() + ADJUST_HOLD
+        if (dragging) scheduleDrag(); else schedulePartial()
       } })
     }
     const lockBox = s.el.querySelector('#devLock')
@@ -1160,11 +1227,6 @@
     const cvPos = s.el.querySelector('#cvPos')
     if (cvPos) cvPos.addEventListener('change', () => command(d.id, { position: +cvPos.value }, `${d.name}: ${cvPos.value} % zu`))
     let target = d.target
-    const sel = s.el.querySelector('#devRoom')
-    if (sel) sel.addEventListener('change', () => {
-      const o = sel.options[sel.selectedIndex]
-      s.close(); assignRoom(d, sel.value || null, o ? o.textContent.replace(' (nicht im Grundriss)', '') : '')
-    })
     const nameInput = s.el.querySelector('#devName')
     // Message after renaming: whether the name also arrived at the source of the device, was shortened or failed there.
     const nameToast = (r, msg) => {

@@ -13,6 +13,9 @@
                      not where it comes from.
        render(ctx)   -> HTML of the block. ctx = { overview, page } (overview = response of /api/overview)
        after(el, ctx) optional: after a rewrite (e.g. bring the tile grid up to date)
+       patch(el, ctx) optional (since 0.30.3): a large block brings itself up to date and writes only the parts that
+                     changed (rooms: tile by tile); returns whether something was written. draw() then calls it
+                     instead of writing render() as a whole.
 
      HO.blocks.draw(id, el, ctx)   draw a block into its element – written only if the HTML changes
                                    (HO.setHTML). Returns true if it was rewritten.
@@ -52,6 +55,7 @@
     draw(id, el, ctx) {
       const block = registry[id]
       if (!block || !el) return false
+      if (block.patch) return block.patch(el, ctx)
       const changed = HO.setHTML(el, block.render(ctx))
       if (changed && block.after) block.after(el, ctx)
       return changed

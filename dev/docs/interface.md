@@ -4,6 +4,38 @@ Area documentation of ComfyOS – part of the guide `CLAUDE.md` (which says when
 This file says how the area is built and what to watch out for when changing it; version notes ("since 0.x") name
 when something was added.
 
+## Since 0.30.3 – controls that answer at once
+
+Measured: `dev/perf.md`, "0.30.3". Rules that follow from it are at the end of this section.
+
+- **Room tiles one by one** (`overview.js` `roomCards`, `devicesHTML`, `patchRooms`): the block "Räume und Geräte" keeps
+  the HTML of every tile (`roomsDrawn`) and replaces only the tiles whose content changed, in their place in the grid.
+  Before, one lamp that switched rewrote every room and `HO.tileGrid.layout()` measured and distributed all tiles again
+  (forced layouts in the middle of the script). The block as a whole is written only when rooms are added, removed or
+  reordered (`roomsKey`); a tile the user touched is written in any case, like `HO.setHTML` does.
+- **The floor plan first:** `partial()` hands the floor plan its data before the blocks are rewritten – it measures, and
+  measuring after writing costs a layout of the whole page.
+- **Dragging in a dialog** (`scheduleDrag`): while the colour wheel or a slider of the lamp dialog is dragged, the
+  floor plan follows in every frame and the blocks below the dialog at most every `DRAG_BLOCKS` (200 ms).
+  `HO.lights.bindControl` reports it: `opts.onChange(device, dragging)`.
+- **Values set by hand hold** (`adjusted`, `ADJUST_HOLD` 1.2 s): `light` and `brightness` of a lamp just set here are
+  not taken from the live stream – the echoes of the intermediate values made the light in the plan jump back.
+- **Lamp dialog:** the colour of the lamp is a variable on the power button, not on the whole control (a variable on
+  the control made the browser compute the styles of everything in the dialog per pointer move); segments, slider
+  track and value text are written only on a change.
+- **Glow of the room heads without blur:** `.rc-glow`, `.rg-glow`, `.pv-glow` are plain gradients far larger than
+  their frame – `filter: blur(28px)` changed next to nothing and cost a large blurred area per change and while
+  scrolling. Slightly lower opacity instead (0.7 → 0.64, 0.6 → 0.56).
+- **Title of the home page and date** are written and formatted only on a change.
+- **Device dialog names the room, it no longer assigns it (wish of the operator):** the selection "Raum" is gone
+  (`overview.js` `deviceSheet`, `roomOptions` removed); the dialog shows the room and says that a device is assigned
+  in the floor plan. The floor plan stays the only way (`onAssign` → `assignRoom`); the hints about a pending
+  transfer to the hub stay. Route `PUT /api/devices/{id}/room` is unchanged.
+- **Rules:** (1) a block that grows large writes its parts, not itself (pattern: `patchRooms`); (2) read sizes before
+  writing, never after – or keep them and renew them from a resize observer (pattern: `frameOf` in `floorplan.js`);
+  (3) what a dialog covers does not need every frame of a drag; (4) no `filter: blur()` on something that already is a
+  soft gradient.
+
 ## Since 0.30
 
 - **Room dialog of the floor plan with all controls (wish of the operator):** `overview.js roomSheet` builds the

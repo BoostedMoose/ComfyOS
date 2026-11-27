@@ -129,11 +129,30 @@
     { fps: 15, calm: 6, dpr: 1, amount: 0.4 }
   ]
   const START_LOW = 2
+  /* The fast pace (since 0.30.3): a device that brings a frame to the screen cheaply runs at twice the frames – 60
+     per second while something falls or flies, 30 for a calm image. A view starts at the plain pace of step 0 and
+     switches to the fast one once its frames have proven cheap (FAST_LIMIT); it gives it up for good (until the page
+     is loaded again) as soon as the frames arrive late or cost more than that. fastOk: null = not yet known, true =
+     proven on this device (later views start fast), false = too dear. More frames only where they cost little. */
+  const FAST = { fps: 60, calm: 30 }
+  let fastOk = OLD || REDUCED ? false : null
+  /* During a gesture a frame is dearer than at rest (the plan lies moved below the canvas and has to be put together
+     with it anew): the animation keeps running, at most as fast as lets the frames take GESTURE_SHARE of the time –
+     measured per view while it happens –, never slower than GESTURE_MIN frames per second. A second measure is the
+     beat of the screen itself: if its frames come later than at rest (by GESTURE_LATE), the weather draws fewer
+     frames until the plan moves smoothly again, and more again when there is room. */
+  // Before the first frame of a gesture is measured its cost is taken as GESTURE_GUESS times a frame at rest.
+  const GESTURE_SHARE = 0.3, GESTURE_MIN = 2, GESTURE_LATE = 1.2, GESTURE_GUESS = 3.5
+  const TRAIL_STEP = 1 / 30       // s: a wind line adds a point to its tail this often – its length does not depend on the pace
   const LAG_LIMIT = 1.4      // frames arrive 40 % later than planned on average
   // Drawing itself may take at most a quarter of the time between two frames. Only the time in the script is
   // measured; transferring the image to the screen costs the browser about as much again afterwards –
   // together a good half of the time is left for everything else (controls, live messages).
   const COST_LIMIT = 0.25
+  // Since 0.30.3 the view also measures what the browser needs after the script to bring the frame to the screen
+  // (painting, handing the canvas over – without a graphics card that is most of a frame): script and that together
+  // may take at most SHOW_LIMIT of the time between two frames, and the fast pace only stays below FAST_LIMIT.
+  const SHOW_LIMIT = 0.5, FAST_LIMIT = 0.2
   const CHECK_EVERY = 30     // frames between two checks
   const MARGIN = 7, FEATHER = 6   // px: free margin around the building and width of the soft transition
   const WIND_FX_MIN = 10 / 80     // fx.wind ist km/h ÷ 80 (weather.WIND_MAX_KMH): Windlinien ab 10 km/h
@@ -166,8 +185,10 @@
   // light of the lamps (since 0.28): opacity of the light where it leaves a lamp at full brightness, of the halo right
   // at its bubble or symbol and its width in grid cells, seconds a change of colour or brightness takes, how much the
   // daylight takes away from it. Since 0.30.1 the halo is faint and the light itself stronger (wish of the operator:
-  // the bright rim read as a second lamp, the glow in the room was hardly there)
-  const LAMP_LIGHT = 0.52, LAMP_HALO = 0.16, LAMP_HALO_W = 0.9, LAMP_EASE = 0.45, LAMP_DAY = 0.35
+  // the bright rim read as a second lamp, the glow in the room was hardly there). Since 0.30.3 a change eases in a
+  // good third of a second (LAMP_EASE 0.45 → 0.12 – it is a time constant) and at the quick pace: the plan follows
+  // the colour wheel at once
+  const LAMP_LIGHT = 0.52, LAMP_HALO = 0.16, LAMP_HALO_W = 0.9, LAMP_EASE = 0.12, LAMP_DAY = 0.35
   // a Hue effect on a gradient strip (since 0.30.2): pixels it is played over (from the gradient points of the strip,
   // at least and at most) and how often per second the pattern moves on
   const EFFECT_PIXELS = [5, 9], EFFECT_RATE = 8
@@ -192,8 +213,9 @@
   // moon = strength of the moonlight (0…1), sound = speakers that send waves, doors = doors light passes through,
   // haze = lines of heat that rise from the walls in the sun, lamps = lamps that shine (since 0.28), symbols = plan
   // symbols left free; drawMs/indoorMs = moving average of the time a frame takes in the script, all of it and the
-  // inside layer (ms, since 0.28 – dev/measure.py reads them)
-  const stats = { frames: 0, wisps: 0, cells: 0, solid: 0, builds: 0, step: 0, leaves: 0, puddles: 0, ripples: 0, rays: 0,
+  // inside layer (ms, since 0.28 – dev/measure.py reads them); fast = the view drawn last runs at the fast pace (FAST);
+  // moveFps/moveMs = the pace found for gestures (0 = no limit needed) and what a frame costs during one (ms)
+  const stats = { fast: false, moveFps: 0, moveMs: 0, frames: 0, wisps: 0, cells: 0, solid: 0, builds: 0, step: 0, leaves: 0, puddles: 0, ripples: 0, rays: 0,
     blocked: 0, frost: 0, windows: 0, beams: 0, moon: 0, sound: 0, doors: 0, haze: 0, lamps: 0, symbols: 0, drawMs: 0, indoorMs: 0 }
   const rnd = (a, b) => a + Math.random() * (b - a)
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
@@ -573,7 +595,7 @@
     let puddleShape = null, wet = 0       // puddles: for which building they lie and how large they are right now (0…1.3)
     let frost = [], frostShape = null     // hoarfrost patches (plan units) and the building they were laid out for
     let sunUp = false                     // sunlight (and with it sun rays) can be seen right now
-    let raf = 0, last = 0, lastStamp = 0, visible = true, alive = true, shown = false, seedKey = '', held = false
+    let raf = 0, last = 0, lastStamp = 0, visible = true, alive = true, shown = false, seedKey = ''
     let shift = null                      // offset of the painted plan in the frame being drawn right now (getShift)
     let movedOf = { mask: null, k: 0, x: 0, y: 0, val: null }
     let lastView = null                   // position of the plan in the frame drawn last (carry takes the weather along)
@@ -587,7 +609,35 @@
     // Self-regulation (STEPS). The performance tier of the device counts at the time of mounting – if an earlier
     // view learned "economical", this one starts right there.
     let step = HO.perf && HO.perf.low ? START_LOW : 0, lag = 1, cost = 0, sinceCheck = 0
-    stats.step = step
+    let fast = fastOk === true && step === 0   // this view runs at the fast pace (FAST)
+    stats.step = step; stats.fast = fast
+    let stale = true                      // the size of the canvas has to be read anew (resize)
+    // What a frame costs after the script: a message posted from the frame arrives when the browser has painted it
+    // and handed it over – the time until then is the part of the cost the script itself never sees (shownMs, averaged).
+    const probe = window.MessageChannel ? new MessageChannel() : null
+    let probeAt = 0, shownMs = 0, whole = 0
+    let moving = false, movingMs = 0      // a gesture is under way, and what a frame costs during it (script and showing, averaged)
+    let restMs = 0                        // what a frame costs at rest (script and showing, averaged)
+    // beat of the screen (ms between two of its frames, averaged) at rest and during a gesture; the pace found for
+    // gestures on this device (0 = no limit yet)
+    let beatAt = 0, restBeat = 0, moveBeat = 0, moveFps = 0, sinceBeat = 0
+    let probeMoving = false, probeSpent = 0
+    if (probe) {
+      probe.port1.onmessage = () => {
+        if (!probeAt) return
+        const shown = Math.min(250, performance.now() - probeAt)
+        probeAt = 0
+        if (probeMoving) movingMs = movingMs ? movingMs * 0.6 + (probeSpent + shown) * 0.4 : probeSpent + shown
+        else shownMs = shownMs * 0.8 + Math.min(50, shown) * 0.2
+      }
+    }
+    // Ask the browser to report when the frame just drawn is on the screen (spent = what the script took for it).
+    const timeFrame = spent => {
+      if (!probe || probeAt) return
+      probeAt = performance.now(); probeMoving = moving; probeSpent = spent
+      probe.port2.postMessage(0)
+    }
+    let drawnShift = null                 // offset of the plan the image on the canvas was drawn with (follow)
     let flash = null, nextFlash = 0, meteor = null, nextMeteor = 0, darkNow = 0
     const rings = []
     for (let i = 0; i < RINGS; i++) rings.push([])
@@ -605,7 +655,11 @@
 
     /* ---------- Size and particles */
     function resize() {
+      // measured only when the size can have changed (since 0.30.3; the observer below reports it) – reading it in
+      // every frame and with every live message made the browser lay the page out again and again
+      if (!stale && W && H) return true
       const w = canvas.clientWidth, h = canvas.clientHeight
+      stale = !window.ResizeObserver || !w || !h
       if (!w || !h) return false
       dpr = Math.min(STEPS[step].dpr, window.devicePixelRatio || 1)
       if (w !== W || h !== H || canvas.width !== Math.round(w * dpr)) {
@@ -966,6 +1020,9 @@
       // During a gesture the painted plan stands moved in the frame: the house (punch mask) moves along. The
       // flow field still belongs to the painted plan (flowAt computes back).
       shift = opts.getShift ? opts.getShift() : null
+      // the image is drawn for this position of the plan: a transform that held the last image in place meanwhile ends
+      drawnShift = shift
+      if (canvas.style.transform) canvas.style.transform = ''
       let mask = painted
       if (shift) {
         if (movedOf.mask !== painted || movedOf.k !== shift.k || movedOf.x !== shift.x || movedOf.y !== shift.y) {
@@ -1016,11 +1073,28 @@
       }
       // Margin image: draw -> punch out with a margin -> lay onto the main image -> clear. `edgeUsed` saves the copying
       // if nothing was drawn.
-      let edgeUsed = false
-      const onEdge = () => { ctx = edgeCtx; edgeUsed = true }
+      /* The first group of such layers (ground, puddles, hoarfrost, sunlight) needs no second image (since 0.30.3):
+         nothing lies below it yet, so it is drawn straight onto the main image and the margin is punched out there
+         (`direct`); what belongs underneath – the daylight, which reaches up to the wall – is laid in behind it
+         afterwards (`under`, destination-over). The result is the same image, without filling, copying and clearing
+         a whole canvas – that copy was most of what a frame cost where the graphics card does not help. */
+      let edgeUsed = false, direct = true
+      const under = []
+      mainCtx.save()      // what the first group changes on the context ends with it
+      const onEdge = () => { ctx = direct ? mainCtx : edgeCtx; edgeUsed = true }
       // Punch out the intermediate layer of the effects near the margin and transfer it to the main image.
       const flushEdge = () => {
         ctx = mainCtx
+        if (direct) {
+          direct = false
+          mainCtx.restore()
+          if (edgeUsed) punch(mainCtx, true)
+          edgeUsed = false
+          mainCtx.globalCompositeOperation = 'destination-over'
+          for (const [color, a] of under) { mainCtx.globalAlpha = a; mainCtx.fillStyle = color; mainCtx.fillRect(box.x, box.y, box.w, box.h) }
+          mainCtx.globalCompositeOperation = 'source-over'; mainCtx.globalAlpha = 1
+          return
+        }
         if (!edgeUsed) return
         edgeUsed = false
         punch(edgeCtx, true)
@@ -1059,7 +1133,7 @@
       const sunColor = mix(col.light, col.sun, Math.round((0.05 + 0.3 * Math.pow(low, 1.4)) * 20) / 20)
       // veil = what rain, snow, fog and a thunderstorm put in front of the light (0…1, since 0.27.5 instead of a yes/no)
       const veil = veilOf(), clearAir = 1 - veil, cloud = clamp(fx.cloud || 0, 0, 1)
-      if (day > 0 && !fx.indoor_only) wash(sunlit ? mix(col.light, col.sun, 0.05) : col.light, ((0.16 - 0.06 * cloud) * clearAir + 0.075 * veil) * day * k)
+      if (day > 0 && !fx.indoor_only) under.push([sunlit ? mix(col.light, col.sun, 0.05) : col.light, ((0.16 - 0.06 * cloud) * clearAir + 0.075 * veil) * day * k])
       // moonlight: by the phase of the moon, how high it stands and what clouds and veil let through – it shines
       // through gaps in any weather; below a trace (MOON_TRACE) it is none
       const moon = sun && sun.moon
@@ -1409,7 +1483,7 @@
         const renew = (p, index) => {
           if (index >= active) { p.n = 0; p.fresh = true; return }
           for (let i = 0; i < 6; i++) { p.x = rnd(box.x, bx1); p.y = rnd(box.y, by1); if (!flowAt(p.x, p.y)) break }
-          p.age = 0; p.life = rnd(1.8, 3.6); p.n = 1; p.h[0] = p.x; p.h[1] = p.y; p.fresh = false; p.out = 0
+          p.age = 0; p.life = rnd(1.8, 3.6); p.n = 1; p.h[0] = p.x; p.h[1] = p.y; p.fresh = false; p.out = 0; p.due = 0
         }
         // Move a particle of the wind one step with the flow and continue its trail. If it runs
         // towards a wall, it fades out before (out counts down) and does not end abruptly; used-up ones restart.
@@ -1428,8 +1502,15 @@
           }
           if (p.out > 0 && (p.out -= pace_step) <= 0) return renew(p, index)
           p.age += pace_step
-          p.h.copyWithin(2, 0, TRAIL * 2 - 2); p.h[0] = p.x; p.h[1] = p.y
-          if (p.n < TRAIL) p.n++
+          // the tail gets a new point every TRAIL_STEP seconds, in between only its head moves (since 0.30.3: at the
+          // fast pace a point per frame would halve the tail)
+          p.due = (p.due || 0) + pace_step
+          if (p.due >= TRAIL_STEP - 0.002) {
+            p.due = 0
+            p.h.copyWithin(2, 0, TRAIL * 2 - 2)
+            if (p.n < TRAIL) p.n++
+          }
+          p.h[0] = p.x; p.h[1] = p.y
         }
         if (!warm) {
           // lead-in: the tails are there from the first frame. Reduced motion: longer, standing streamlines.
@@ -1830,7 +1911,9 @@
       //    LAMP_EASE seconds, a lamp switched off fades; a running light effect flickers (candle, fire), twinkles
       //    (sparkle, glisten) or breathes. Lamps are a little less striking by day (LAMP_DAY).
       // own clock: the first frame of an animation has no dt, but a change that starts it must ease from there on
-      const clock = performance.now(), live = running(), ldt = live && lampAt ? Math.min(0.1, (clock - lampAt) / 1000) : 0
+      // (the first frame of a change counts as one frame of the pace since 0.30.3 – before it moved nothing and the
+      // change only began with the frame after)
+      const clock = performance.now(), live = running(), ldt = !live ? 0 : lampAt ? Math.min(0.1, (clock - lampAt) / 1000) : 1 / fpsNow()
       lampAt = live ? clock : 0
       const ease = live ? 1 - Math.exp(-ldt / LAMP_EASE) : 1, shining = [], lampRooms = {}, current = {}
       for (const l of indoor.lamps || []) {
@@ -2160,53 +2243,107 @@
     // Does the light of a lamp change right now (since 0.28)? A running light effect flickers or breathes all the time; a
     // new colour or brightness eases in, a lamp switched off fades out – then the image runs at the calm pace, otherwise
     // the light of the lamps is a still image.
-    const lampsBusy = () => {
-      if (REDUCED) return false
+    const lampsEasing = () => {
       const indoor = opts.getIndoor ? opts.getIndoor() : null, list = (indoor && indoor.lamps) || [], ids = {}
       for (const l of list) {
         ids[l.id] = true
         const m = lampSeen[l.id]
-        if (l.effect || !m || Math.abs(m.level - l.level) > 0.01 || m.cols.length !== l.colors.length) return true
+        if (!m || Math.abs(m.level - l.level) > 0.01 || m.cols.length !== l.colors.length) return true
         if (m.cols.some((col, i) => Math.abs(col[0] - l.colors[i][0]) + Math.abs(col[1] - l.colors[i][1]) + Math.abs(col[2] - l.colors[i][2]) > 3)) return true
       }
       return Object.keys(lampSeen).some(id => !ids[id])
+    }
+    // … or does a light effect run on one of them? Both keep the image running; only easing needs the quick pace.
+    const lampsBusy = () => {
+      if (REDUCED) return false
+      const indoor = opts.getIndoor ? opts.getIndoor() : null
+      return ((indoor && indoor.lamps) || []).some(l => l.effect) || lampsEasing()
     }
     // fast (30 frames/s) only as long as something falls, flies or flashes; sound waves are slow rings – SOUND_FPS is
     // enough for them (since 0.28, before they drove the whole image at the fast pace); for clouds, fog, stars, hoarfrost,
     // sun rays and the light of the lamps a calm tick is enough. Stars only count in darkness, sun rays only while the sun
     // shines.
     const quick = () => !!(drops.length || flakes.length || pellets.length || leaves.length || wisps.length || ripples.length || flash || meteor)
-    const fpsNow = () => quick() ? STEPS[step].fps : sounding() ? Math.min(STEPS[step].fps, Math.max(STEPS[step].calm, SOUND_FPS)) : STEPS[step].calm
+    // (since 0.30.3: a lamp whose light changes right now eases at the quick pace – the plan answers the colour wheel
+    // at once –, and a device that draws cheaply runs at the fast pace, see FAST)
+    const paceOf = () => fast && step === 0 ? FAST : STEPS[step]
+    const fpsNow = () => {
+      const pace = paceOf()
+      return quick() || (!REDUCED && lampsEasing()) ? pace.fps : sounding() ? Math.min(pace.fps, Math.max(pace.calm, SOUND_FPS)) : pace.calm
+    }
     const animated = () => !!fx && !REDUCED && !!(quick() || sounding() || clouds.length || banks.length ||
       (stars.length && darkNow > 0.15 && (wet > 0.03 || (fx.frost && frost.length))) || glints.length ||
       ((rays.length || shimmers.length) && sunUp) || fx.thunder || lampsBusy())
-    const running = () => alive && !held && animated() && visible && !document.hidden
+    const running = () => alive && animated() && visible && !document.hidden
     // after every frame: average delay and cost; every CHECK_EVERY frames decide whether a step back is needed
     function govern(gap, interval, spent) {
       if (gap) lag = lag * 0.9 + (gap / interval) * 0.1
       cost = cost * 0.9 + (spent / interval) * 0.1
+      whole = whole * 0.9 + ((spent + shownMs) / interval) * 0.1
+      restMs = restMs ? restMs * 0.9 + (spent + shownMs) * 0.1 : spent + shownMs
       if (++sinceCheck < CHECK_EVERY) return
       sinceCheck = 0
-      if ((lag > LAG_LIMIT || cost > COST_LIMIT) && step < STEPS.length - 1) {
+      const late = lag > LAG_LIMIT || cost > COST_LIMIT || whole > SHOW_LIMIT
+      if (!late && !fast && fastOk === null && step === 0 && probe) {
+        // first verdict on this device: would the frames, as dear as they are now, fit the fast pace?
+        fastOk = whole * interval <= FAST_LIMIT * 1000 / FAST.fps
+        fast = stats.fast = fastOk
+        whole = 0; lag = 1
+        return
+      }
+      if (!late && !(fast && whole > FAST_LIMIT)) return
+      whole = 0
+      if (fast) {
+        // the fast pace does not come cheap here: back to the plain one, for every view until the page is loaded again
+        fast = fastOk = stats.fast = false; lag = 1; cost = 0
+      } else if (step < STEPS.length - 1) {
         step++; lag = 1; cost = 0
         stats.step = step
         if (step >= START_LOW && HO.perf) HO.perf.learnLow()   // this device starts economically in future
+        stale = true
         if (resize()) seed()
       }
     }
     // One frame of the animation: draw at the pace of the current step, measure the frame time and request the next frame.
     function frame(ts) {
       raf = 0
-      if (!running()) return
-      const interval = 1000 / fpsNow()
+      if (!running()) { beatAt = 0; return }
+      if (beatAt) feel(Math.min(200, ts - beatAt))
+      beatAt = ts
+      const interval = intervalNow()
       if (!last || ts - last >= interval - 2) {
         const gap = last ? ts - last : 0, dt = Math.min(0.1, gap / 1000)
         last = ts; stats.frames++
         const t0 = performance.now()
         draw(ts, dt)
-        govern(gap, interval, performance.now() - t0)
+        const spent = performance.now() - t0
+        timeFrame(spent)
+        if (!moving) govern(gap, interval, spent)   // frames of a gesture are dearer: they set their own pace (intervalNow)
       }
       raf = requestAnimationFrame(frame)
+    }
+    // Time between two frames right now: the pace of the weather – during a gesture at least the quick pace of the
+    // step (the plan moves, the image should follow closely), but never more frames than the device brings to the
+    // screen in GESTURE_SHARE of the time.
+    function intervalNow() {
+      if (!moving) return 1000 / fpsNow()
+      const wanted = Math.max(fpsNow(), paceOf().fps)
+      const dear = movingMs || restMs * GESTURE_GUESS
+      const byCost = dear ? clamp(GESTURE_SHARE * 1000 / dear, GESTURE_MIN, FAST.fps) : wanted
+      return 1000 / Math.min(wanted, byCost, moveFps || wanted)
+    }
+    // Feel the beat of the screen (gap = ms since its last frame): at rest it is remembered; during a gesture it is
+    // compared with that every few frames – later frames mean the weather takes the plan's time, so it draws less
+    // often (moveFps), and a steady beat lets it draw more often again.
+    function feel(gap) {
+      if (!moving) { restBeat = restBeat ? restBeat * 0.9 + gap * 0.1 : gap; return }
+      moveBeat = moveBeat ? moveBeat * 0.75 + gap * 0.25 : gap
+      if (++sinceBeat < 5 || !restBeat) return
+      sinceBeat = 0
+      const wanted = Math.max(fpsNow(), paceOf().fps)
+      if (moveBeat > restBeat * GESTURE_LATE) moveFps = Math.max(GESTURE_MIN, (moveFps || wanted) * 0.7)
+      else if (moveFps && moveBeat < restBeat * 1.08) moveFps = Math.min(wanted, moveFps * 1.15)
+      stats.moveFps = Math.round(moveFps * 10) / 10; stats.moveMs = Math.round(movingMs * 10) / 10
     }
     function kick() {
       if (running()) { if (!raf) { last = 0; raf = requestAnimationFrame(frame) } }
@@ -2216,11 +2353,32 @@
     document.addEventListener('visibilitychange', onVis)
     let io = null
     if (window.IntersectionObserver) {
-      io = new IntersectionObserver(es => { visible = es.some(e => e.isIntersecting); if (visible) kick() })
+      // with a margin (since 0.30.3): the animation is already running when the plan scrolls into view
+      io = new IntersectionObserver(es => { visible = es.some(e => e.isIntersecting); if (visible) kick() }, { rootMargin: '300px 0px' })
       io.observe(canvas)
     }
-    const ro = window.ResizeObserver ? new ResizeObserver(() => { if (resize() && !raf) draw(0, 0) }) : null
+    const ro = window.ResizeObserver ? new ResizeObserver(() => { stale = true; if (resize() && !raf) draw(0, 0) }) : null
     if (ro) ro.observe(canvas)
+
+    // Draw one image right now, outside the own tick (gesture): a frame of the running animation or the calm image.
+    function paintNow(fresh) {
+      const ts = performance.now(), gap = last && !fresh ? ts - last : 0
+      last = ts
+      if (!running()) return draw(0, 0)
+      stats.frames++
+      draw(ts, Math.min(0.1, gap / 1000))
+      timeFrame(performance.now() - ts)
+    }
+    // Hold the image drawn last on the plan: it was drawn for one offset of the plan (drawnShift), the plan now lies
+    // at another – the transform between the two moves the canvas along until the next image is drawn.
+    function track() {
+      const now = opts.getShift ? opts.getShift() : null
+      const k0 = drawnShift ? drawnShift.k : 1, x0 = drawnShift ? drawnShift.x : 0, y0 = drawnShift ? drawnShift.y : 0
+      const k1 = now ? now.k : 1, x1 = now ? now.x : 0, y1 = now ? now.y : 0
+      const r = k1 / k0, tx = x1 - r * x0, ty = y1 - r * y0
+      const still = Math.abs(r - 1) < 1e-4 && Math.abs(tx) < 0.05 && Math.abs(ty) < 0.05
+      canvas.style.transform = still ? '' : `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) scale(${r.toFixed(4)})`
+    }
 
     let calmSig = ''
     // What the calm single image depends on (since 0.30): the seeded weather, size, colours, the position of sun
@@ -2259,27 +2417,25 @@
         if (sig !== calmSig) { calmSig = sig; kick() }
       },
       redraw() { if (!raf) draw(0, 0) },
-      // A gesture at the floor plan begins (on) or ends. Returns whether the weather image stays in its place
-      // and keeps running – the house then moves along in the image (getShift, follow). On economical devices the image
-      // stands still instead, and the caller moves it as a whole with the plan.
+      /* A gesture at the floor plan begins (on) or ends. Since 0.30.3 the image never stands still for it, on no
+         device: the weather keeps running at its pace, and between two of its frames the canvas is held on the plan
+         by a transform (follow). Before, economical devices froze the image, moved it as a whole and drew the new
+         section only afterwards – with empty edges in between. When the gesture ends the new section is drawn at once. */
       gesture(on) {
-        const stays = !(HO.perf && HO.perf.low) && step < START_LOW
-        held = !!on && !stays
-        if (!on) kick()
-        return stays
+        const ended = moving && !on
+        moving = !!on
+        moveBeat = 0; sinceBeat = 0
+        if (ended && alive) paintNow(true)
       },
-      // One frame at the pace of the gesture: the plan was just moved, the house in the weather image follows at once (the
-      // own tick would be a touch too late – the house would run away from its section).
-      follow() {
-        if (!alive || held) return
-        // at the pace of the current step, never per pointer move (since 0.30): a gesture fires far more often
-        // than frames are needed, and every call here costs a whole drawing – that made panning stutter
-        const ts = performance.now(), gap = last ? ts - last : 0
-        if (gap && gap < 1000 / fpsNow() - 2) return
-        last = ts
-        if (!running()) return draw(0, 0)
-        stats.frames++
-        draw(ts, Math.min(0.1, gap / 1000))
+      /* One frame of the gesture: the plan was just moved. At the pace of the animation the image is drawn anew for
+         the new position (never per pointer move – a gesture fires far more often than frames are needed, since 0.30);
+         in between the image drawn last is moved and scaled with the plan (since 0.30.3), so house, light and weather
+         never lag behind it. `force` draws in any case. */
+      follow(force) {
+        if (!alive) return
+        const gap = last ? performance.now() - last : 0
+        if (!force && gap && gap < intervalNow() - 2) return track()
+        paintNow(false)
       },
       get animating() { return !!raf },
       // Abbauen: Animation anhalten, Beobachter abmelden, Canvas entfernen.
@@ -2291,6 +2447,7 @@
         document.removeEventListener('visibilitychange', onVis)
         if (io) io.disconnect()
         if (ro) ro.disconnect()
+        if (probe) probe.port1.close()
         if (canvas.parentNode) canvas.parentNode.removeChild(canvas)
       }
     }
